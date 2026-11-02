@@ -1,7 +1,7 @@
 /**
  * ==============================================================================
  * 🏛️ سامانه جامع، پیشرفته و تمام‌عیار ربات تلگرام مدیریت امانت‌داری و صرافی کریمی
- * شامل تمامی بخش‌ها: مشتریان، تراکنش‌ها، صرافی‌ها، معاملات، آدرس‌ها، گزارشات و ادمین‌ها
+ * هماهنگ با پایگاه داده Supabase و معماری سرورلس (Vercel)
  * ==============================================================================
  */
 
@@ -15,7 +15,7 @@ const MASTER_ADMIN_ID = "802655440";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
-// حافظه موقت جامع برای مدیریت ویزاردها، وضعیت‌ها و نشست‌های ادمین‌ها
+// حافظه موقت جامع برای مدیریت ویزاردها، وضعیت‌ها و نشست‌های کاربران
 const userStates = {};
 
 /**
@@ -89,7 +89,7 @@ async function answerCallbackQuery(callbackQueryId, text = '', showAlert = false
 }
 
 /**
- * بررسی دسترسی ادمین (مالک اصلی یا ادمین‌های همکار ثبت شده در جدول admins)
+ * بررسی دسترسی ادمین
  */
 async function isAuthorizedAdmin(userId) {
   if (String(userId) === String(MASTER_ADMIN_ID)) return true;
@@ -187,7 +187,7 @@ async function getAccountLiveBalanceText(accId) {
 }
 
 /**
- * هندلر اصلی سرورلس ربات تلگرام (Vercel Serverless Function)
+ * هندلر اصلی سرورلس ربات تلگرام
  */
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -211,7 +211,6 @@ module.exports = async (req, res) => {
         return res.status(200).json({ ok: true });
       }
 
-      // منوی اصلی
       if (data === 'NAV_MAIN') {
         delete userStates[userId];
         await answerCallbackQuery(query.id);
@@ -220,7 +219,6 @@ module.exports = async (req, res) => {
           [{ text: '📈 گزارشات کلی و مالی', callback_data: 'NAV_REPORTS' }, { text: '🛡️ مدیریت ادمین‌ها', callback_data: 'NAV_ADMINS' }]
         ]);
       } 
-      // بخش مشتریان
       else if (data === 'NAV_CUSTOMERS') {
         userStates[userId] = { step: 'SEARCH_CUSTOMER_PROMPT' };
         await answerCallbackQuery(query.id);
@@ -545,7 +543,6 @@ module.exports = async (req, res) => {
           `📍 آدرس: _${wz.address || '-'}\n` +
           `${verticalRep}`;
 
-        // ارسال گزارش هوشمند به ادمین و صرافی
         let { token, chatId: adminChat } = await getAdminTokenAndChat(userId);
         await sendTelegramMsg(adminChat, summaryMsg);
 
@@ -558,12 +555,10 @@ module.exports = async (req, res) => {
         await answerCallbackQuery(query.id);
         await editTelegramMsg(chatId, msgId, '📈 *بخش گزارشات و آمار مالی جامع*\n\nنوع گزارش مورد نظر را انتخاب کنید:', [
           [{ text: '📊 گزارش کل موجودی‌ها', callback_data: 'REP_GLOBAL' }],
-          [{ text: '🟢 لیست بستانکاران', callback_data: 'REP_CREDITORS' }, { text: '🔴 لیست بدهکاران', callback_data: 'REP_DEBTORS' }],
           [{ text: '🔙 منوی اصلی', callback_data: 'NAV_MAIN' }]
         ]);
       }
       else if (data === 'REP_GLOBAL') {
-        const { data: accounts } = await supabase.from('accounts').select('*');
         const { data: allTxs } = await supabase.from('transactions').select('*');
         let globalCurrs = {};
         if (allTxs) {
@@ -794,7 +789,7 @@ module.exports = async (req, res) => {
 
       if (st && st.wizard && st.wizard.step === 'WAITING_CUSTOM_ADDR') {
         st.wizard.address = text;
-        st.wizard.step = 'WAITING_DESC';
+        st.wizard.step = 'WAIT_DESC';
         await sendTelegramMsg(chatId, `📍 آدرس: *${text}*\n\n📝 لطفاً توضیحات معامله را بنویسید:`, [
           [{ text: '⏭️ بدون توضیحات (ثبت نهایی)', callback_data: 'WZ_FINALIZE' }]
         ]);
