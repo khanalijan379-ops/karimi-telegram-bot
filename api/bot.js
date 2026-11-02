@@ -1,7 +1,8 @@
 /**
  * ==============================================================================
- * 🏛️ سامانه جامع، پیشرفته و تمام‌عیار ربات تلگرام مدیریت امانت‌داری و صرافی کریمی
- * هماهنگ با پایگاه داده Supabase و معماری سرورلس (Vercel)
+ * 🏛️ سامانه جامع، پیشرفته و کامل ربات تلگرام مدیریت امانت‌داری و صرافی کریمی
+ * بر اساس منطق کامل broker.html و admin.html
+ * (بخش اول از دو بخش)
  * ==============================================================================
  */
 
@@ -29,7 +30,7 @@ function toEnglishDigits(str) {
 }
 
 /**
- * فرمت‌بندی مبالغ با کاما
+ * فرمت‌بندی مبالغ مالی با کاما
  */
 function formatMoney(amount) {
   let num = parseFloat(amount);
@@ -56,7 +57,7 @@ async function sendTelegramMsg(chatId, text, inlineKeyboard = null) {
 }
 
 /**
- * ویرایش پیام تلگرام
+ * ویرایش پیام موجود در تلگرام
  */
 async function editTelegramMsg(chatId, messageId, text, inlineKeyboard = null) {
   const body = { chat_id: chatId, message_id: messageId, text: text, parse_mode: 'Markdown' };
@@ -74,7 +75,7 @@ async function editTelegramMsg(chatId, messageId, text, inlineKeyboard = null) {
 }
 
 /**
- * پاسخ به Callback Query
+ * پاسخ به Callback Query دکمه‌های شیشه‌ای
  */
 async function answerCallbackQuery(callbackQueryId, text = '', showAlert = false) {
   try {
@@ -89,7 +90,7 @@ async function answerCallbackQuery(callbackQueryId, text = '', showAlert = false
 }
 
 /**
- * بررسی دسترسی ادمین
+ * بررسی دسترسی ادمین (مالک اصلی یا ادمین‌های همکار ثبت شده در جدول admins)
  */
 async function isAuthorizedAdmin(userId) {
   if (String(userId) === String(MASTER_ADMIN_ID)) return true;
@@ -127,7 +128,7 @@ async function getAdminTokenAndChat(userId) {
 }
 
 /**
- * محاسبه گزارش عمودی مانده حساب‌های صرافی به تفکیک تمام ارزها
+ * محاسبه گزارش عمودی مانده حساب‌های صرافی به تفکیک تمام ارزها (دقیقاً مطبق با broker.html)
  */
 async function getBrokerVerticalBalanceText(brokerId) {
   const { data: txs } = await supabase.from('broker_transactions').select('*').eq('broker_id', brokerId);
@@ -160,7 +161,7 @@ async function getBrokerVerticalBalanceText(brokerId) {
 }
 
 /**
- * محاسبه بیلان زنده حساب مشتری
+ * محاسبه بیلان زنده حساب مشتری (مطابق با admin.html)
  */
 async function getAccountLiveBalanceText(accId) {
   const { data: txs } = await supabase.from('transactions').select('*').eq('AccountID', accId);
@@ -185,10 +186,14 @@ async function getAccountLiveBalanceText(accId) {
   }
   return textParts.join('\n\n') || 'تراکنشی برای این حساب ثبت نشده است.';
 }
-
 /**
- * هندلر اصلی سرورلس ربات تلگرام
+ * ==============================================================================
+ * 🏛️ سامانه جامع، پیشرفته و کامل ربات تلگرام مدیریت امانت‌داری و صرافی کریمی
+ * بر اساس منطق کامل broker.html و admin.html
+ * (بخش دوم و پایانی)
+ * ==============================================================================
  */
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(200).send('Bot Server is Running & Ready');
@@ -789,7 +794,7 @@ module.exports = async (req, res) => {
 
       if (st && st.wizard && st.wizard.step === 'WAITING_CUSTOM_ADDR') {
         st.wizard.address = text;
-        st.wizard.step = 'WAIT_DESC';
+        st.wizard.step = 'WAITING_DESC';
         await sendTelegramMsg(chatId, `📍 آدرس: *${text}*\n\n📝 لطفاً توضیحات معامله را بنویسید:`, [
           [{ text: '⏭️ بدون توضیحات (ثبت نهایی)', callback_data: 'WZ_FINALIZE' }]
         ]);
