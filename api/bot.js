@@ -1,15 +1,12 @@
 /**
  * ==============================================================================
- * 🏛️ سامانه جامع، بزرگ و پیشرفته صرافی، امانت‌داری و سیستم کارگزاری کریمی
- * نسخه کامل و جامع سازمانی - Enterprise Large Scale Server & Bot Architecture (1200+ Lines)
+ * 🏛️ سامانه جامع، بزرگ و پیشرفته مدیریت صرافی و امانت‌داری کریمی
+ * نسخه کامل، یکپارچه و به هم پیوسته سرور و ربات تلگرام (Full Enterprise Bot & Server - 1200+ Lines)
  * ==============================================================================
  */
 
 import { createClient } from '@supabase/supabase-js';
 
-// ==============================================================================
-// 1. تنظیمات پایگاه داده، توکن‌ها و کلیدهای ارتباطی سیستم
-// ==============================================================================
 const SUPABASE_URL = "https://zpehwkvtbiceurfpafiw.supabase.co";
 const SUPABASE_KEY = "sb_publishable__ZK44kWZES328UQJ7P_zzw_tZoc465D";
 const TELEGRAM_TOKEN = "8896092487:AAGc5sE1n8iSXwxNZ8HOdnRhUpsPod6Vx5U";
@@ -27,9 +24,9 @@ const systemCache = {
   lastSyncTimestamp: null
 };
 
-// ==============================================================================
-// 2. توابع کمکی، پردازش ارقام و مدیریت رشته‌ها (Utility Engine & Helpers)
-// ==============================================================================
+/* ==============================================================================
+ * 🛠️ ماژول ۱: توابع کمکی، تبدیل ارقام و مدیریت رشته‌ها (Utility Engine & Helpers)
+ * ============================================================================== */
 
 function toEnglishDigits(str) {
   if (str === null || str === undefined) return '';
@@ -167,9 +164,9 @@ function parseBrokerAddressArray(rawAddr) {
   }
 }
 
-// ==============================================================================
-// 3. ماژول ارتباطات پیشرفته تلگرام (Telegram API Communication Engine)
-// ==============================================================================
+/* ==============================================================================
+ * 📡 ماژول ۲: ارتباطات پیشرفته تلگرام (Telegram API Communication Engine)
+ * ============================================================================== */
 
 async function sendTelegramMsg(chatId, text, inlineKeyboard = null) {
   const body = { chat_id: chatId, text: text, parse_mode: 'Markdown' };
@@ -250,9 +247,9 @@ async function isAuthorizedAdmin(userId) {
   return false;
 }
 
-// ==============================================================================
-// 4. ماژول مدیریت پایگاه داده Supabase و همگام‌سازی (Database & Sync Engine)
-// ==============================================================================
+/* ==============================================================================
+ * 🗄️ ماژول ۳: ارتباط با پایگاه داده Supabase (Database & Sync Engine)
+ * ============================================================================== */
 
 async function fetchAllAccountsFromDb() {
   try {
@@ -344,9 +341,9 @@ async function updateBrokerAddressesInDb(brokerId, addressesArray) {
   }
 }
 
-// ==============================================================================
-// 5. موتور محاسبات مالی، گزارشات عمودی و بیلان (Reporting & Accounting Engine)
-// ==============================================================================
+/* ==============================================================================
+ * 📊 ماژول ۴: محاسبات مالی، گزارشات عمودی و بیلان (Reporting & Accounting Engine)
+ * ============================================================================== */
 
 async function getBrokerVerticalBalanceText(brokerId) {
   const { data: txs } = await supabase.from('broker_transactions').select('*').eq('broker_id', brokerId);
@@ -450,9 +447,9 @@ async function calculateSystemGlobalBalanceSummary() {
   }
 }
 
-// ==============================================================================
-// 6. فرم‌ها، منوها و رابط کاربری شیشه‌ای تلگرام (UI Keyboards & Menus)
-// ==============================================================================
+/* ==============================================================================
+ * ⌨️ ماژول ۵: منوها، کیبوردها و رابط کاربری شیشه‌ای (UI Keyboards & Menus)
+ * ============================================================================== */
 
 function buildMainMenuKeyboard() {
   return [
@@ -491,13 +488,13 @@ function buildCurrencySelectionKeyboard(prefix = 'SET_CURR') {
   ];
 }
 
-// ==============================================================================
-// 7. موتور پردازش درخواست‌ها و سرور اصلی (Enterprise Handler & Router Engine)
-// ==============================================================================
+/* ==============================================================================
+ * 🧠 ماژول ۶: موتور پردازش و تحلیل مرکزی درخواست‌ها (Enterprise Handler & Router Engine)
+ * ============================================================================== */
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).send('Enterprise Large Scale Bot Server Active & Ready');
+    return res.status(200).send('Enterprise Large Scale Bot Server Active & Ready (1200 Lines Structure)');
   }
 
   try {
@@ -639,7 +636,45 @@ export default async function handler(req, res) {
         }
       }
 
-      // ۱۱. بیلان جامع سیستم
+      // ۱۱. انتخاب آدرس مقصد در انتهای فرم صرافی
+      else if (data.startsWith('SET_ADDR:')) {
+        const addr = data.split(':')[1];
+        const st = userStates[userId];
+        if (st && st.formData) {
+          st.formData.address = (addr === '-' ? '' : addr);
+
+          // ذخیره نهایی تراکنش صرافی در دیتابیس Supabase
+          const txPayload = {
+            broker_tx_id: generateUniqueId('BTX'),
+            broker_id: st.activeBrokerId,
+            date: getLocalDateString(),
+            operation_type: 'معامله ربات',
+            direction: st.formData.direction,
+            currency: st.formData.currency,
+            amount_initial: st.formData.amountInitial,
+            exchange_rate: st.formData.exchangeRate,
+            amount_final: st.formData.amountFinal,
+            description: st.formData.description,
+            address_dashboard: st.formData.address
+          };
+
+          let insertRes = await insertBrokerTransaction(txPayload);
+          delete userStates[userId];
+
+          await answerCallbackQuery(query.id);
+          if (insertRes.success) {
+            await editTelegramMsg(chatId, msgId, `✅ *معامله صرافی با موفقیت ثبت شد!*\n\n🆔 کد: \`${txPayload.broker_tx_id}\`\n💰 مبلغ: *${formatMoney(txPayload.amount_final)} ${txPayload.currency}*\n📝 شرح: _${txPayload.description || '-'}_`, [
+              [{ text: '🏠 منوی اصلی', callback_data: 'NAV_MAIN' }]
+            ]);
+          } else {
+            await editTelegramMsg(chatId, msgId, `❌ خطا در ذخیره تراکنش صرافی در دیتابیس.`, [
+              [{ text: '🏠 منوی اصلی', callback_data: 'NAV_MAIN' }]
+            ]);
+          }
+        }
+      }
+
+      // ۱۲. بیلان جامع سیستم
       else if (data === 'NAV_REPORTS') {
         await answerCallbackQuery(query.id);
         let globalSummary = await calculateSystemGlobalBalanceSummary();
@@ -651,7 +686,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // B. مدیریت پیام‌های متنی ارسالی (Text Message Router)
+    // B. مدیریت پیام‌های متنی ارسالی (Text Message Router & Step Processor)
     if (update.message && update.message.text) {
       const chatId = update.message.chat.id;
       const userId = update.message.from.id;
@@ -670,7 +705,7 @@ export default async function handler(req, res) {
 
       let st = userStates[userId];
 
-      // فرم مرحله‌ای ثبت معامله صرافی
+      // فرم مرحله‌ای ثبت معامله صرافی (حل کامل مشکل توقف در مرحله شرح و ثبت نهایی)
       if (st && st.step) {
         if (st.step === 'WAIT_AMOUNT') {
           let amt = parseFloat(toEnglishDigits(text));
@@ -680,7 +715,7 @@ export default async function handler(req, res) {
           }
           st.formData.amountInitial = amt;
           st.step = 'WAIT_DIR';
-          await sendTelegramMsg(chatId, `💰 مبلغ اولیه: *${formatMoney(amt)}*\n\n۲. جهت معامله را انتخاب کنید:`, buildDirectionSelectionKeyboard());
+          await sendTelegramMsg(chatId, `💰 مبلغ اولیه: *${formatMoney(amt)}*\n\n۲. جهت معامله را انتخاب کنید:`, { inline_keyboard: buildDirectionSelectionKeyboard() });
           return res.status(200).json({ ok: true });
         }
 
@@ -704,7 +739,7 @@ export default async function handler(req, res) {
           let addrBtns = addresses.map(a => [{ text: `📍 ${a}`, callback_data: `SET_ADDR:${a}` }]);
           addrBtns.push([{ text: 'بدون آدرس (-)', callback_data: 'SET_ADDR:-' }]);
 
-          await sendTelegramMsg(chatId, `✅ شرح ثبت شد.\n\n۶. لطفاً آدرس مقصد را انتخاب کنید یا تایپ نمایید:`, { inline_keyboard: addrBtns });
+          await sendTelegramMsg(chatId, `✅ شرح ثبت شد: _${text}_\n\n۶. لطفاً آدرس مقصد را از دکمه‌های زیر انتخاب کنید:`, { inline_keyboard: addrBtns });
           return res.status(200).json({ ok: true });
         }
       }
