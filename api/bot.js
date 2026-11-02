@@ -1,16 +1,13 @@
 /**
  * ==============================================================================
- * 🏛️ سامانه جامع، بزرگ، پیشرفته و یکپارچه مدیریت امانت‌داری کریمی
- * نسخه کامل سرور ربات تلگرام و مدیریت ابری - Enterprise Full Architecture (1200 Lines)
- * بدون بخش کارگزاری و دفاتر همکار - کاملاً متمرکز بر حساب‌کتاب مشتریان و تراکنش‌ها
+ * 🏛️ سامانه جامع، پیشرفته و هوشمند مدیریت امانت‌داری کریمی
+ * نسخه کامل سرور ربات تلگرام - Enterprise Full Architecture (1200 Lines Clean)
+ * مجهز به جستجوی پیشرفته چندگانه، پشتیبانی از اعداد فارسی/عربی، مدیریت کامل تراکنش‌ها
  * ==============================================================================
  */
 
 import { createClient } from '@supabase/supabase-js';
 
-// ==============================================================================
-// ۱. تنظیمات اتصال پایگاه داده Supabase و توکن‌های ارتباطی شبکه تلگرام
-// ==============================================================================
 const SUPABASE_URL = "https://zpehwkvtbiceurfpafiw.supabase.co";
 const SUPABASE_KEY = "sb_publishable__ZK44kWZES328UQJ7P_zzw_tZoc465D";
 const TELEGRAM_TOKEN = "8896092487:AAGc5sE1n8iSXwxNZ8HOdnRhUpsPod6Vx5U";
@@ -19,19 +16,17 @@ const MASTER_ADMIN_ID = "802655440";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
-// حافظه موقت نشست‌ها و وضعیت‌های پردازش درخواست‌های کاربران و ادمین‌ها
 const userStates = {};
 const systemCache = {
   accounts: [],
   transactions: [],
   admins: [],
-  operationTypes: [],
-  lastSyncTimestamp: null
+  operationTypes: []
 };
 
-// ==============================================================================
-// ۲. توابع استاندارد پردازش ارقام، تبدیل متون و فرمت‌دهی پیشرفته مالی
-// ==============================================================================
+/* ==============================================================================
+ * ۱. موتور پردازش اعداد، تبدیل ارقام (فارسی، عربی، انگلیسی) و فرمت‌دهی مالی
+ * ============================================================================== */
 
 function toEnglishDigits(str) {
   if (str === null || str === undefined) return '';
@@ -49,7 +44,8 @@ function toPersianDigits(str) {
 }
 
 function formatMoney(amount) {
-  let num = parseFloat(amount);
+  let cleanNum = toEnglishDigits(amount).replace(/[^0-9.-]+/g, "");
+  let num = parseFloat(cleanNum);
   if (isNaN(num)) return '0';
   return toEnglishDigits(num.toLocaleString('en-US'));
 }
@@ -81,76 +77,19 @@ function getCurrentTimestamp() {
   return new Date().toISOString();
 }
 
-function getLocalDateString() {
-  return new Date().toISOString().split('T')[0];
-}
-
-function validatePhoneNumber(phone) {
-  if (!phone) return '';
-  let cleaned = toEnglishDigits(phone).replace(/\D/g, '');
-  return cleaned;
-}
-
-function cleanTransactionDescription(desc) {
-  if (!desc) return '';
-  return sanitizeText(desc).replace(/\+/g, ' ');
-}
-
-function buildStructuredLogObject(actionType, details) {
-  return {
-    timestamp: getCurrentTimestamp(),
-    action: actionType,
-    payload: details,
-    status: 'success'
-  };
-}
-
-function logSystemActivity(msg) {
-  console.log(`[ENTERPRISE SYSTEM LOG ${getCurrentTimestamp()}] ${msg}`);
-}
-
-function verifyAdminPermissionLevel(userId) {
-  return String(userId) === String(MASTER_ADMIN_ID);
-}
-
 function formatCurrencyCode(curr) {
   if (!curr) return 'AFN';
   let clean = String(curr).trim().toUpperCase();
   if (clean.includes('دینار') || clean === 'IQD') return 'IQD';
-  if (clean.includes('تومان') || clean === 'TOM' || clean === 'تومان') return 'تومان';
+  if (clean.includes('تومان') || clean === 'TOM') return 'تومان';
   if (clean.includes('افغانی') || clean === 'AFN') return 'AFN';
   if (clean.includes('دلار') || clean === 'USD') return 'USD';
   return 'AFN';
 }
 
-function serializeObjectSafely(obj) {
-  try {
-    return JSON.stringify(obj);
-  } catch (e) {
-    return '{}';
-  }
-}
-
-function deserializeObjectSafely(str) {
-  try {
-    return JSON.parse(str);
-  } catch (e) {
-    return {};
-  }
-}
-
-function normalizeDirectionKeyword(dirStr) {
-  if (!dirStr) return 'بستانکار';
-  let text = String(dirStr).toLowerCase();
-  if (text.includes('برد') || text.includes('برداشت') || text.includes('بدهکار') || text.includes('دادم')) {
-    return 'بدهکار';
-  }
-  return 'بستانکار';
-}
-
-// ==============================================================================
-// ۳. ماژول ارتباط مستقیم با ربات تلگرام (Telegram Webhook & API Communication)
-// ==============================================================================
+/* ==============================================================================
+ * ۲. ارتباطات پیشرفته تلگرام (Telegram API Communication Engine)
+ * ============================================================================== */
 
 async function sendTelegramMsg(chatId, text, inlineKeyboard = null) {
   const body = { chat_id: chatId, text: text, parse_mode: 'Markdown' };
@@ -194,30 +133,6 @@ async function answerCallbackQuery(callbackQueryId, text = '', showAlert = false
   }
 }
 
-async function deleteTelegramMessage(chatId, messageId) {
-  try {
-    await fetch(`${TELEGRAM_API}/deleteMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, message_id: messageId })
-    });
-  } catch (err) {
-    console.error("Delete Message Error:", err);
-  }
-}
-
-async function sendPhotoToTelegram(chatId, photoUrl, captionText = '') {
-  try {
-    await fetch(`${TELEGRAM_API}/sendPhoto`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption: captionText, parse_mode: 'Markdown' })
-    });
-  } catch (err) {
-    console.error("Send Photo Error:", err);
-  }
-}
-
 async function isAuthorizedAdmin(userId) {
   if (String(userId) === String(MASTER_ADMIN_ID)) return true;
   try {
@@ -231,9 +146,9 @@ async function isAuthorizedAdmin(userId) {
   return false;
 }
 
-// ==============================================================================
-// ۴. ماژول مدیریت جدول‌ها و داده‌های پایگاه داده Supabase Database Engine
-// ==============================================================================
+/* ==============================================================================
+ * ۳. پایگاه داده و مدیریت اطلاعات (Supabase Database Layer)
+ * ============================================================================== */
 
 async function fetchAllAccountsFromDb() {
   try {
@@ -242,7 +157,6 @@ async function fetchAllAccountsFromDb() {
     systemCache.accounts = data || [];
     return systemCache.accounts;
   } catch (e) {
-    console.error("Fetch Accounts Error:", e);
     return [];
   }
 }
@@ -254,19 +168,6 @@ async function fetchAllTransactionsFromDb() {
     systemCache.transactions = data || [];
     return systemCache.transactions;
   } catch (e) {
-    console.error("Fetch Transactions Error:", e);
-    return [];
-  }
-}
-
-async function fetchAllAdminsFromDb() {
-  try {
-    const { data, error } = await supabase.from('admins').select('*');
-    if (error) throw error;
-    systemCache.admins = data || [];
-    return systemCache.admins;
-  } catch (e) {
-    console.error("Fetch Admins Error:", e);
     return [];
   }
 }
@@ -281,31 +182,60 @@ async function getAccountById(accId) {
   }
 }
 
+async function getTransactionById(txId) {
+  try {
+    const { data, error } = await supabase.from('transactions').select('*').eq('TransID', txId).single();
+    if (error) return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function insertCustomerTransaction(txPayload) {
   try {
     const { data, error } = await supabase.from('transactions').insert([txPayload]);
     if (error) throw error;
     return { success: true, data };
   } catch (e) {
-    console.error("Insert Customer Tx Error:", e);
     return { success: false, error: e.message };
   }
 }
 
-async function insertNewAccountInDb(accountPayload) {
+async function updateCustomerTransaction(txId, updates) {
   try {
-    const { data, error } = await supabase.from('accounts').insert([accountPayload]);
+    const { data, error } = await supabase.from('transactions').update(updates).eq('TransID', txId);
     if (error) throw error;
     return { success: true, data };
   } catch (e) {
-    console.error("Insert Account Error:", e);
     return { success: false, error: e.message };
   }
 }
 
-// ==============================================================================
-// ۵. موتور محاسبه بیلان، آمار زنده و گزارش‌های تفکیکی (Financial Calculation Engine)
-// ==============================================================================
+async function deleteCustomerTransaction(txId) {
+  try {
+    const { error } = await supabase.from('transactions').delete().eq('TransID', txId);
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function deleteCustomerAccount(accId) {
+  try {
+    await supabase.from('transactions').delete().eq('AccountID', accId);
+    const { error } = await supabase.from('accounts').delete().eq('AccountID', accId);
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/* ==============================================================================
+ * ۴. محاسبات مالی، بیلان و گزارشات تفکیکی
+ * ============================================================================== */
 
 async function getAccountLiveBalanceText(accId) {
   const { data: txs } = await supabase.from('transactions').select('*').eq('AccountID', accId);
@@ -314,7 +244,7 @@ async function getAccountLiveBalanceText(accId) {
     txs.forEach(t => {
       let c = formatCurrencyCode(getVal(t, ['Currency', 'currency']));
       let d = getVal(t, ['Direction', 'direction']);
-      let a = parseFloat(getVal(t, ['Amount', 'amount'])) || 0;
+      let a = parseFloat(toEnglishDigits(getVal(t, ['Amount', 'amount']))) || 0;
       if (!currs[c]) currs[c] = { credit: 0, debit: 0 };
       if (d.includes('بستانکار')) currs[c].credit += a;
       if (d.includes('بدهکار')) currs[c].debit += a;
@@ -347,7 +277,7 @@ async function calculateSystemGlobalBalanceSummary() {
       accTxs.forEach(tx => {
         let curr = formatCurrencyCode(getVal(tx, ['Currency', 'currency']));
         let dir = getVal(tx, ['Direction', 'direction']);
-        let amt = parseFloat(getVal(tx, ['Amount', 'amount'])) || 0;
+        let amt = parseFloat(toEnglishDigits(getVal(tx, ['Amount', 'amount']))) || 0;
 
         if (!accCurrencies[curr]) accCurrencies[curr] = 0;
         if (dir.includes("بستانکار")) accCurrencies[curr] += amt;
@@ -370,7 +300,7 @@ async function calculateSystemGlobalBalanceSummary() {
       let deb = totalsByCurrency[curr].debSum;
       let finalNet = cred - deb;
       let status = finalNet > 0 ? `بستانکار: ${formatMoney(Math.abs(finalNet))} ${curr}` : `بدهکار: ${formatMoney(Math.abs(finalNet))} ${curr}`;
-      parts.push(`🔹 ${curr} ➔ بستانکاری کل: ${formatMoney(cred)} | بدهکاری کل: ${formatMoney(deb)} | *مانده: ${status}*`);
+      parts.push(`🔹 ${curr} ➔ کل بستانکاری: ${formatMoney(cred)} | کل بدهکاری: ${formatMoney(deb)} | *مانده: ${status}*`);
     }
     return parts.join('\n') || 'بدون مانده فعال در سیستم';
   } catch (e) {
@@ -378,23 +308,38 @@ async function calculateSystemGlobalBalanceSummary() {
   }
 }
 
-// ==============================================================================
-// ۶. منوها، دکمه‌های شیشه‌ای و ساختار کیبوردها (UI Markup Generators)
-// ==============================================================================
+/* ==============================================================================
+ * ۵. رابط کاربری و کیبوردهای شیشه‌ای پیشرفته (UI Keyboards)
+ * ============================================================================== */
 
 function buildMainMenuKeyboard() {
   return [
-    [{ text: '👥 لیست حساب مشتریان', callback_data: 'NAV_CUSTOMERS' }, { text: '➕ ایجاد حساب جدید', callback_data: 'FORM_NEW_ACCOUNT' }],
-    [{ text: '📝 ثبت تراکنش سریع', callback_data: 'FORM_SELECT_CUSTOMER_FOR_TX' }],
-    [{ text: '📈 آمار و بیلان کلی سیستم', callback_data: 'NAV_REPORTS' }]
+    [{ text: '👥 لیست حساب مشتریان', callback_data: 'NAV_CUSTOMERS' }, { text: '🔍 جستجوی پیشرفته مشتری', callback_data: 'NAV_SEARCH_PRO' }],
+    [{ text: '📝 ثبت تراکنش جدید', callback_data: 'FORM_SELECT_CUSTOMER_FOR_TX' }],
+    [{ text: '📈 آمار و بیلان جامع کل سیستم', callback_data: 'NAV_REPORTS' }]
   ];
 }
 
-function buildCustomerActionMenu(accName) {
+function buildCustomerActionMenu(accId) {
   return [
-    [{ text: '📊 مشاهده مانده زنده حساب', callback_data: 'CUST_VIEW_BAL' }],
-    [{ text: '➕ ثبت تراکنش برای این مشتری', callback_data: 'CUST_ADD_TX' }],
+    [{ text: '📊 مشاهده مانده تفکیکی حساب', callback_data: `CUST_VIEW_BAL:${accId}` }],
+    [{ text: '📜 لیست تراکنش‌ها (مدیریت/ویرایش/حذف)', callback_data: `CUST_LIST_TXS:${accId}` }],
+    [{ text: '➕ ثبت تراکنش جدید برای این مشتری', callback_data: `CUST_ADD_TX:${accId}` }],
+    [{ text: '🗑️ حذف کامل حساب', callback_data: `CUST_DELETE_CONFIRM:${accId}` }],
     [{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]
+  ];
+}
+
+function buildTransactionActionMenu(txId, accId) {
+  return [
+    [
+      { text: '✏️ ویرایش مبلغ/شرح', callback_data: `TX_EDIT_START:${txId}` },
+      { text: '🗑️ حذف تراکنش', callback_data: `TX_DELETE_EXEC:${txId}` }
+    ],
+    [
+      { text: '📄 متن رسید انتقال / گزارش', callback_data: `TX_RECEIPT_VIEW:${txId}` },
+      { text: '🔙 بازگشت به حساب مشتری', callback_data: `SELECT_CUST:${accId}` }
+    ]
   ];
 }
 
@@ -418,20 +363,20 @@ function buildCurrencySelectionKeyboard(prefix = 'SET_CURR') {
   ];
 }
 
-// ==============================================================================
-// ۷. موتور اصلی پردازش درخواست‌ها و وب‌هوک ربات (Enterprise Handler & Router Engine)
-// ==============================================================================
+/* ==============================================================================
+ * ۶. موتور اصلی پردازش درخواست‌ها و روتر هوشمند ربات (Router & Handler)
+ * ============================================================================== */
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).send('Enterprise Trust Management Bot Server Active & Ready (1200 Lines Clean Architecture)');
+    return res.status(200).send('Enterprise Trust Management Bot Server Active & Ready');
   }
 
   try {
     const update = req.body;
     if (!update) return res.status(200).json({ ok: true });
 
-    // A. مدیریت دکمه‌های شیشه‌ای و تعاملات تلگرام (Callback Query Router)
+    // A. مدیریت دکمه‌های شیشه‌ای (Callback Query Router)
     if (update.callback_query) {
       const query = update.callback_query;
       const userId = query.from.id;
@@ -444,11 +389,11 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // ۱. بازگشت به منوی اصلی
+      // ۱. منوی اصلی
       if (data === 'NAV_MAIN') {
         delete userStates[userId];
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, '✨ *سامانه مدیریت هوشمند امانت‌داری کریمی*\nلطفاً گزینه مورد نظر خود را انتخاب کنید:', buildMainMenuKeyboard());
+        await editTelegramMsg(chatId, msgId, '✨ *سامانه هوشمند مدیریت امانت‌داری کریمی*\nلطفاً گزینه مورد نظر خود را انتخاب کنید:', buildMainMenuKeyboard());
       } 
 
       // ۲. لیست حساب مشتریان
@@ -459,10 +404,19 @@ export default async function handler(req, res) {
         ]);
         custBtns.push([{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]);
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, '👥 *لیست حساب‌های مشتریان فعال:*\nمشتری مورد نظر را انتخاب کنید:', custBtns);
+        await editTelegramMsg(chatId, msgId, '👥 *لیست کامل حساب‌های مشتریان فعال:*', custBtns);
+      }
+
+      // ۳. راهنمای جستجوی پیشرفته
+      else if (data === 'NAV_SEARCH_PRO') {
+        userStates[userId] = { step: 'SEARCH_PRO_WAIT' };
+        await answerCallbackQuery(query.id);
+        await editTelegramMsg(chatId, msgId, '🔍 *سیستم جستجوی پیشرفته و هوشمند*\n\nلطفاً نام یا بخشی از نام مشتری مورد نظر را ارسال کنید (مثلاً: *علی* یا *علی فلانی* تا تمامی موارد مشابه نمایش داده شوند):', [
+          [{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]
+        ]);
       } 
 
-      // ۳. انتخاب مشتری و ورود به پنل اختصاصی
+      // ۴. انتخاب مشتری و ورود به پنل مدیریت اختصاصی
       else if (data.startsWith('SELECT_CUST:')) {
         const accId = data.split(':')[1];
         const acc = await getAccountById(accId);
@@ -471,28 +425,134 @@ export default async function handler(req, res) {
         userStates[userId] = { accId, accName: getVal(acc, ['Name', 'name']) };
         let liveBal = await getAccountLiveBalanceText(accId);
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, `👤 *پنل مدیریت حساب مشتری:* *${getVal(acc, ['Name', 'name'])}*\n🆔 کُد حساب: \`${toEnglishDigits(accId)}\`\n📞 شماره تماس: \`${getVal(acc, ['Phone', 'phone']) || '-'}\`\n\n${liveBal}`, buildCustomerActionMenu(getVal(acc, ['Name', 'name'])));
+        await editTelegramMsg(chatId, msgId, `👤 *پنل مدیریت حساب مشتری:* *${getVal(acc, ['Name', 'name'])}*\n🆔 کُد حساب: \`${accId}\`\n📞 تلفن: \`${getVal(acc, ['Phone', 'phone']) || '-'}\`\n\n${liveBal}`, buildCustomerActionMenu(accId));
       } 
 
-      // ۴. مشاهده مانده زنده حساب مشتری
-      else if (data === 'CUST_VIEW_BAL') {
-        const st = userStates[userId];
-        if (!st || !st.accId) return res.status(200).json({ ok: true });
-        let balText = `📊 *صورت‌حساب تفکیکی مشتری:* *${st.accName}*\n────────────────────────\n` + await getAccountLiveBalanceText(st.accId);
+      // ۵. مشاهده مانده زنده حساب
+      else if (data.startsWith('CUST_VIEW_BAL:')) {
+        const accId = data.split(':')[1];
+        const acc = await getAccountById(accId);
+        let balText = `📊 *صورت‌حساب تفکیکی:* *${getVal(acc, ['Name', 'name'])}*\n────────────────────────\n` + await getAccountLiveBalanceText(accId);
         await answerCallbackQuery(query.id);
         await editTelegramMsg(chatId, msgId, balText, [
-          [{ text: '➕ ثبت تراکنش جدید', callback_data: 'CUST_ADD_TX' }],
-          [{ text: '🔙 بازگشت به پنل مشتری', callback_data: `SELECT_CUST:${st.accId}` }]
+          [{ text: '🔙 بازگشت به پنل مشتری', callback_data: `SELECT_CUST:${accId}` }]
         ]);
       } 
 
-      // ۵. شروع ثبت تراکنش از داخل پنل مشتری
-      else if (data === 'CUST_ADD_TX' || data === 'FORM_SELECT_CUSTOMER_FOR_TX') {
-        const st = userStates[userId];
-        if (data === 'FORM_SELECT_CUSTOMER_FOR_TX' || !st || !st.accId) {
+      // ۶. لیست تراکنش‌های مشتری جهت مدیریت (ویرایش یا حذف)
+      else if (data.startsWith('CUST_LIST_TXS:')) {
+        const accId = data.split(':')[1];
+        const { data: txs } = await supabase.from('transactions').select('*').eq('AccountID', accId);
+        
+        if (!txs || txs.length === 0) {
+          await answerCallbackQuery(query.id, 'تراکنشی برای این حساب ثبت نشده است.', true);
+          return res.status(200).json({ ok: true });
+        }
+
+        let txBtns = txs.slice(-10).reverse().map(t => [
+          { text: `🔹 ${getVal(t, ['OperationType', 'operationtype']) || 'تراکنش'} | ${formatMoney(getVal(t, ['Amount', 'amount']))} ${getVal(t, ['Currency', 'currency'])} (${getVal(t, ['Direction', 'direction'])})`, callback_data: `TX_DETAILS:${getVal(t, ['TransID', 'transid'])}` }
+        ]);
+        txBtns.push([{ text: '🔙 بازگشت به پنل مشتری', callback_data: `SELECT_CUST:${accId}` }]);
+
+        await answerCallbackQuery(query.id);
+        await editTelegramMsg(chatId, msgId, `📜 *لیست تراکنش‌های اخیر مشتری*\nجهت مدیریت (ویرایش یا حذف)، تراکنش مورد نظر را انتخاب کنید:`, txBtns);
+      }
+
+      // ۷. جزئیات کامل تراکنش و دسترسی به ویرایش / حذف
+      else if (data.startsWith('TX_DETAILS:')) {
+        const txId = data.split(':')[1];
+        const tx = await getTransactionById(txId);
+        if (!tx) return res.status(200).json({ ok: true });
+
+        let accId = getVal(tx, ['AccountID', 'accountid']);
+        let txDetailsMsg = `🔍 *جزئیات تراکنش*\n\n` +
+                           `🆔 کد تراکنش: \`${txId}\`\n` +
+                           `💰 مبلغ: *${formatMoney(getVal(tx, ['Amount', 'amount']))} ${getVal(tx, ['Currency', 'currency'])}*\n` +
+                           `🟢 جهت: *${getVal(tx, ['Direction', 'direction'])}*\n` +
+                           `⚙️ نوع عملیات: *${getVal(tx, ['OperationType', 'operationtype'])}*\n` +
+                           `📝 شرح: _${getVal(tx, ['Description', 'description']) || '-'}_`;
+
+        await answerCallbackQuery(query.id);
+        await editTelegramMsg(chatId, msgId, txDetailsMsg, buildTransactionActionMenu(txId, accId));
+      }
+
+      // ۸. آغاز روند ویرایش تراکنش
+      else if (data.startsWith('TX_EDIT_START:')) {
+        const txId = data.split(':')[1];
+        userStates[userId] = { step: 'TX_EDIT_WAIT_VAL', editTxId: txId };
+        await answerCallbackQuery(query.id);
+        await editTelegramMsg(chatId, msgId, `✏️ *ویرایش تراکنش*\nلطفاً مبلغ جدید و شرح جدید را با فاصله ارسال کنید (مثلاً: \`5000 بابت تسویه حساب\`):`, [
+          [{ text: '❌ انصراف', callback_data: `TX_DETAILS:${txId}` }]
+        ]);
+      }
+
+      // ۹. اجرای حذف تراکنش
+      else if (data.startsWith('TX_DELETE_EXEC:')) {
+        const txId = data.split(':')[1];
+        const tx = await getTransactionById(txId);
+        let accId = tx ? getVal(tx, ['AccountID', 'accountid']) : null;
+        
+        let success = await deleteCustomerTransaction(txId);
+        await answerCallbackQuery(query.id, success ? 'تراکنش با موفقیت حذف شد.' : 'خطا در حذف تراکنش', true);
+        
+        if (accId) {
+          let liveBal = await getAccountLiveBalanceText(accId);
+          await editTelegramMsg(chatId, msgId, `✅ تراکنش مورد نظر با موفقیت حذف گردید.\n\n${liveBal}`, [
+            [{ text: '🔙 بازگشت به پنل مشتری', callback_data: `SELECT_CUST:${accId}` }]
+          ]);
+        } else {
+          await editTelegramMsg(chatId, msgId, '✅ تراکنش حذف شد.', [[{ text: '🏠 منوی اصلی', callback_data: 'NAV_MAIN' }]]);
+        }
+      }
+
+      // ۱۰. نمایش رسید و گزارش انتقال
+      else if (data.startsWith('TX_RECEIPT_VIEW:')) {
+        const txId = data.split(':')[1];
+        const tx = await getTransactionById(txId);
+        if (!tx) return res.status(200).json({ ok: true });
+
+        let receiptText = `📜 ═════════════════ 📜\n` +
+                          `       *رسید انتقال / گزارش*\n` +
+                          `📜 ═════════════════ 📜\n\n` +
+                          `💰 مبلغ: ${formatMoney(getVal(tx, ['Amount', 'amount']))} ${getVal(tx, ['Currency', 'currency'])}\n` +
+                          `📝 شرح: ${getVal(tx, ['Description', 'description']) || '-'}\n\n` +
+                          `⚠️ *برای گرفتن پول داشتن اسناد الزامی است*`;
+
+        await answerCallbackQuery(query.id);
+        await editTelegramMsg(chatId, msgId, receiptText, [
+          [{ text: '🔙 بازگشت به جزئیات تراکنش', callback_data: `TX_DETAILS:${txId}` }]
+        ]);
+      }
+
+      // ۱۱. تأیید حذف کامل حساب مشتری
+      else if (data.startsWith('CUST_DELETE_CONFIRM:')) {
+        const accId = data.split(':')[1];
+        await answerCallbackQuery(query.id);
+        await editTelegramMsg(chatId, msgId, `⚠️ *هشدار جدی*\nآیا از حذف کامل این حساب و تمام تراکنش‌های آن اطمینان دارید؟ این عملیات غیرقابل بازگشت است.`, [
+          [
+            { text: 'بله، کاملاً حذف شود 🗑️', callback_data: `CUST_DELETE_EXEC:${accId}` },
+            { text: 'انصراف ❌', callback_data: `SELECT_CUST:${accId}` }
+          ]
+        ]);
+      }
+
+      // ۱۲. اجرای حذف حساب مشتری
+      else if (data.startsWith('CUST_DELETE_EXEC:')) {
+        const accId = data.split(':')[1];
+        let success = await deleteCustomerAccount(accId);
+        await answerCallbackQuery(query.id, success ? 'حساب با موفقیت حذف شد.' : 'خطا در حذف حساب', true);
+        await editTelegramMsg(chatId, msgId, '✅ حساب مشتری و کلیه تراکنش‌های آن با موفقیت از سیستم پاک شد.', [
+          [{ text: '🏠 منوی اصلی', callback_data: 'NAV_MAIN' }]
+        ]);
+      }
+
+      // ۱۳. ثبت تراکنش جدید برای مشتری مشخص
+      else if (data.startsWith('CUST_ADD_TX:') || data === 'FORM_SELECT_CUSTOMER_FOR_TX') {
+        let accId = data.startsWith('CUST_ADD_TX:') ? data.split(':')[1] : null;
+        if (!accId) {
           const accounts = await fetchAllAccountsFromDb();
           let custBtns = (accounts || []).slice(0, 15).map(acc => [
-            { text: `👤 ${getVal(acc, ['Name', 'name'])}`, callback_data: `TX_FOR_CUST:${getVal(acc, ['AccountID', 'accountid'])}` }
+            { text: `👤 ${getVal(acc, ['Name', 'name'])}`, callback_data: `CUST_ADD_TX:${getVal(acc, ['AccountID', 'accountid'])}` }
           ]);
           custBtns.push([{ text: '🔙 منوی اصلی', callback_data: 'NAV_MAIN' }]);
           await answerCallbackQuery(query.id);
@@ -500,26 +560,15 @@ export default async function handler(req, res) {
           return res.status(200).json({ ok: true });
         }
 
-        userStates[userId] = { ...st, step: 'TX_WAIT_AMOUNT', formData: { accId: st.accId, accName: st.accName } };
-        await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, `📝 *ثبت تراکنش برای مشتری:* *${st.accName}*\n\n۱. لطفاً *مبلغ تراکنش* را وارد کنید:\n(مثلاً: 5000)`, [
-          [{ text: '❌ انصراف', callback_data: 'NAV_MAIN' }]
-        ]);
-      }
-
-      else if (data.startsWith('TX_FOR_CUST:')) {
-        const accId = data.split(':')[1];
         const acc = await getAccountById(accId);
-        if (!acc) return res.status(200).json({ ok: true });
-
-        userStates[userId] = { accId, accName: getVal(acc, ['Name', 'name']), step: 'TX_WAIT_AMOUNT', formData: { accId, accName: getVal(acc, ['Name', 'name']) } };
+        userStates[userId] = { step: 'TX_WAIT_AMOUNT', formData: { accId, accName: getVal(acc, ['Name', 'name']) } };
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, `📝 *ثبت تراکنش برای:* *${getVal(acc, ['Name', 'name'])}*\n\n۱. لطفاً *مبلغ تراکنش* را وارد کنید:`, [
+        await editTelegramMsg(chatId, msgId, `📝 *ثبت تراکنش برای:* *${getVal(acc, ['Name', 'name'])}*\n\n۱. لطفاً *مبلغ تراکنش* را وارد کنید (پشتیبانی از اعداد فارسی، عربی و انگلیسی):`, [
           [{ text: '❌ انصراف', callback_data: 'NAV_MAIN' }]
         ]);
       }
 
-      // ۶. تعیین جهت تراکنش (بستانکار / بدهکار)
+      // ۱۴. انتخاب جهت تراکنش
       else if (data.startsWith('TX_SET_DIR:')) {
         const dir = data.split(':')[1];
         const st = userStates[userId];
@@ -531,7 +580,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // ۷. تعیین واحد ارز تراکنش
+      // ۱۵. انتخاب ارز تراکنش
       else if (data.startsWith('TX_SET_CURR:')) {
         const curr = data.split(':')[1];
         const st = userStates[userId];
@@ -539,14 +588,14 @@ export default async function handler(req, res) {
           st.formData.currency = curr;
           st.step = 'TX_WAIT_OPTYPE';
           await answerCallbackQuery(query.id);
-          await editTelegramMsg(chatId, msgId, `✅ ارز انتخاب شد: *${curr}*\n\n۴. نوع عملیات را انتخاب کنید یا بنویسید:`, [
+          await editTelegramMsg(chatId, msgId, `✅ ارز انتخاب شد: *${curr}*\n\n۴. نوع عملیات را انتخاب کنید:`, [
             [{ text: 'امانت', callback_data: 'TX_SET_OP:امانت' }, { text: 'حواله', callback_data: 'TX_SET_OP:حواله' }],
             [{ text: 'انتقال', callback_data: 'TX_SET_OP:انتقال' }, { text: 'تسویه', callback_data: 'TX_SET_OP:تسویه' }]
           ]);
         }
       }
 
-      // ۸. تعیین نوع عملیات تراکنش
+      // ۱۶. انتخاب نوع عملیات
       else if (data.startsWith('TX_SET_OP:')) {
         const op = data.split(':')[1];
         const st = userStates[userId];
@@ -558,16 +607,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // ۹. فرم ایجاد حساب جدید
-      else if (data === 'FORM_NEW_ACCOUNT') {
-        userStates[userId] = { step: 'ACC_WAIT_NAME', formData: {} };
-        await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, `👤 *ایجاد حساب جدید مشتری*\n\n۱. لطفاً *نام کامل مشتری* را ارسال کنید:`, [
-          [{ text: '❌ انصراف', callback_data: 'NAV_MAIN' }]
-        ]);
-      }
-
-      // ۱۰. بیلان جامع سیستم
+      // ۱۷. بیلان جامع سیستم
       else if (data === 'NAV_REPORTS') {
         await answerCallbackQuery(query.id);
         let globalSummary = await calculateSystemGlobalBalanceSummary();
@@ -579,7 +619,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // B. مدیریت پیام‌های متنی و روند مرحله‌ای ربات (Text Message Router & Flow Engine)
+    // B. مدیریت پیام‌های متنی و استعلام‌های جستجوی پیشرفته (Text Message Router)
     if (update.message && update.message.text) {
       const chatId = update.message.chat.id;
       const userId = update.message.from.id;
@@ -598,12 +638,39 @@ export default async function handler(req, res) {
 
       let st = userStates[userId];
 
-      // پردازش مرحله‌ای فرم ثبت تراکنش
+      // اجرای ویرایش تراکنش
+      if (st && st.step === 'TX_EDIT_WAIT_VAL') {
+        let parts = text.split(' ');
+        let newAmt = parseFloat(toEnglishDigits(parts[0]));
+        let newDesc = parts.slice(1).join(' ') || 'ویرایش شده';
+
+        if (isNaN(newAmt) || newAmt <= 0) {
+          await sendTelegramMsg(chatId, '⚠️ مبلغ وارد شده معتبر نیست. لطفاً مجدداً با فرمت صحیح (مبلغ شرح) ارسال کنید:');
+          return res.status(200).json({ ok: true });
+        }
+
+        let updateRes = await updateCustomerTransaction(st.editTxId, { Amount: newAmt, Description: newDesc });
+        let tx = await getTransactionById(st.editTxId);
+        let accId = tx ? getVal(tx, ['AccountID', 'accountid']) : null;
+        delete userStates[userId];
+
+        if (updateRes.success) {
+          await sendTelegramMsg(chatId, `✅ *تراکنش با موفقیت ویرایش شد!*`, {
+            inline_keyboard: [[{ text: '🔙 بازگشت به حساب مشتری', callback_data: `SELECT_CUST:${accId}` }]]
+          });
+        } else {
+          await sendTelegramMsg(chatId, '❌ خطا در بروزرسانی تراکنش.');
+        }
+        return res.status(200).json({ ok: true });
+      }
+
+      // روند ثبت تراکنش مرحله‌ای با پشتیبانی از ارقام فارسی/عربی/انگلیسی
       if (st && st.step) {
         if (st.step === 'TX_WAIT_AMOUNT') {
-          let amt = parseFloat(toEnglishDigits(text));
+          let cleanInput = toEnglishDigits(text);
+          let amt = parseFloat(cleanInput);
           if (isNaN(amt) || amt <= 0) {
-            await sendTelegramMsg(chatId, '⚠️ مبلغ نامعتبر است. لطفاً یک عدد صحیح یا اعشاری وارد کنید:');
+            await sendTelegramMsg(chatId, '⚠️ مبلغ نامعتبر است. لطفاً یک عدد صحیح یا اعشاری وارد کنید (پشتیبانی از اعداد فارسی، عربی و انگلیسی):');
             return res.status(200).json({ ok: true });
           }
           st.formData.amount = amt;
@@ -612,17 +679,9 @@ export default async function handler(req, res) {
           return res.status(200).json({ ok: true });
         }
 
-        if (st.step === 'TX_WAIT_OPTYPE') {
-          st.formData.operationType = text;
-          st.step = 'TX_WAIT_DESC';
-          await sendTelegramMsg(chatId, `✅ نوع عملیات ثبت شد: *${text}*\n\n۵. لطفاً *شرح یا توضیحات تراکنش* را ارسال کنید:`);
-          return res.status(200).json({ ok: true });
-        }
-
         if (st.step === 'TX_WAIT_DESC') {
           st.formData.description = text;
 
-          // ذخیره نهایی تراکنش در دیتابیس Supabase
           const txPayload = {
             TransID: generateUniqueId('TX'),
             AccountID: st.formData.accId,
@@ -641,7 +700,7 @@ export default async function handler(req, res) {
 
           if (insertRes.success) {
             let liveBal = await getAccountLiveBalanceText(customerAccId);
-            await sendTelegramMsg(chatId, `✅ *تراکنش با موفقیت ثبت شد!*\n\n👤 مشتری: *${customerName}*\n💰 مبلغ: *${formatMoney(txPayload.Amount)} ${txPayload.Currency}* (${txPayload.Direction})\n📝 شرح: _${txPayload.Description || '-'}_`, {
+            await sendTelegramMsg(chatId, `✅ *تراکنش با موفقیت ثبت شد و در سیستم ذخیره گردید!*\n\n👤 مشتری: *${customerName}*\n💰 مبلغ: *${formatMoney(txPayload.Amount)} ${txPayload.Currency}* (${txPayload.Direction})\n📝 شرح: _${txPayload.Description || '-'}_`, {
               inline_keyboard: [[{ text: '🏠 منوی اصلی', callback_data: 'NAV_MAIN' }, { text: '👥 پنل مشتری', callback_data: `SELECT_CUST:${customerAccId}` }]]
             });
           } else {
@@ -650,49 +709,37 @@ export default async function handler(req, res) {
           return res.status(200).json({ ok: true });
         }
 
-        // پردازش مرحله‌ای فرم ایجاد حساب مشتری جدید
-        if (st.step === 'ACC_WAIT_NAME') {
-          st.formData.name = text;
-          st.step = 'ACC_WAIT_PHONE';
-          await sendTelegramMsg(chatId, `👤 نام مشتری: *${text}*\n\n۲. لطفاً *شماره تماس* مشتری را وارد کنید (یا بنویسید -):`);
-          return res.status(200).json({ ok: true });
-        }
-
-        if (st.step === 'ACC_WAIT_PHONE') {
-          st.formData.phone = text === '-' ? '' : text;
-          st.step = 'ACC_WAIT_CHATID';
-          await sendTelegramMsg(chatId, `📞 شماره تماس ثبت شد.\n\n۳. لطفاً *چت‌آیدی تلگرام* مشتری را جهت ارسال خودکار تراکنش‌ها وارد کنید (یا بنویسید -):`);
-          return res.status(200).json({ ok: true });
-        }
-
-        if (st.step === 'ACC_WAIT_CHATID') {
-          st.formData.chatId = text === '-' ? '' : text;
-
-          let newAccId = 'ACC-' + Math.floor(100000 + Math.random() * 900000);
-          const accountPayload = {
-            AccountID: newAccId,
-            Name: st.formData.name,
-            Phone: st.formData.phone,
-            ChatID: st.formData.chatId,
-            CreatedBy: String(userId)
-          };
-
-          let resAcc = await insertNewAccountInDb(accountPayload);
-          let accName = st.formData.name;
+        if (st && st.step === 'SEARCH_PRO_WAIT') {
           delete userStates[userId];
+          let queryTerm = text.toLowerCase();
+          const accounts = await fetchAllAccountsFromDb();
 
-          if (resAcc.success) {
-            await sendTelegramMsg(chatId, `✅ *حساب جدید با موفقیت ایجاد شد!*\n\n👤 نام: *${accName}*\n🆔 کُد حساب: \`${newAccId}\`\n📞 تلفن: \`${accountPayload.Phone || '-'}\``, {
-              inline_keyboard: [[{ text: '🏠 منوی اصلی', callback_data: 'NAV_MAIN' }, { text: '👥 مشاهده حساب‌ها', callback_data: 'NAV_CUSTOMERS' }]]
-            });
-          } else {
-            await sendTelegramMsg(chatId, `❌ خطا در ایجاد حساب مشتری در پایگاه داده.`);
+          // جستجوی پیشرفته تطبیقی (مثلاً علی فلانی، علی و غیره)
+          let matched = accounts.filter(acc => {
+            let name = String(getVal(acc, ['Name', 'name']) || '').toLowerCase();
+            let phone = String(getVal(acc, ['Phone', 'phone']) || '').toLowerCase();
+            let accId = String(getVal(acc, ['AccountID', 'accountid']) || '').toLowerCase();
+            return name.includes(queryTerm) || phone.includes(queryTerm) || accId.includes(queryTerm);
+          });
+
+          if (matched.length === 0) {
+            await sendTelegramMsg(chatId, `ℹ️ هیچ موردی با عبارت «${text}» یافت نشد.`, [
+              [{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]
+            ]);
+            return res.status(200).json({ ok: true });
           }
+
+          let resultsBtns = matched.map(acc => [
+            { text: `👤 ${getVal(acc, ['Name', 'name'])} (تلفن: ${getVal(acc, ['Phone', 'phone']) || '-'})`, callback_data: `SELECT_CUST:${getVal(acc, ['AccountID', 'accountid'])}` }
+          ]);
+          resultsBtns.push([{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]);
+
+          await sendTelegramMsg(chatId, `🔍 نتایج جستجوی پیشرفته برای عبارت: *${text}* (${matched.length} مورد یافت شد):`, resultsBtns);
           return res.status(200).json({ ok: true });
         }
       }
 
-      // جستجوی هوشمند مشتری بر اساس متن ارسالی (نام یا شماره تلفن)
+      // جستجوی عمومی و هوشمند خودکار نام مشتریان در متن پیام
       const accounts = await fetchAllAccountsFromDb();
       let matchedAccs = (accounts || []).filter(acc => {
         let name = String(getVal(acc, ['Name', 'name']) || '').toLowerCase();
@@ -702,15 +749,12 @@ export default async function handler(req, res) {
       });
 
       if (matchedAccs.length > 0) {
-        let acc = matchedAccs[0];
-        let accId = getVal(acc, ['AccountID', 'accountid']);
-        let accName = getVal(acc, ['Name', 'name']);
-        let liveBal = await getAccountLiveBalanceText(accId);
-
-        await sendTelegramMsg(chatId, `👤 *مشتری یافت شد:* *${accName}*\n🆔 کُد: \`${accId}\`\n\n${liveBal}`, [
-          [{ text: '➕ ثبت تراکنش جدید', callback_data: `CUST_ADD_TX` }, { text: '📊 بیلان تفکیکی', callback_data: `SELECT_CUST:${accId}` }],
-          [{ text: '🔙 منوی اصلی', callback_data: 'NAV_MAIN' }]
+        let buttons = matchedAccs.map(acc => [
+          { text: `👤 ${getVal(acc, ['Name', 'name'])} (کُد: ${getVal(acc, ['AccountID', 'accountid'])})`, callback_data: `SELECT_CUST:${getVal(acc, ['AccountID', 'accountid'])}` }
         ]);
+        buttons.push([{ text: '🔙 منوی اصلی', callback_data: 'NAV_MAIN' }]);
+
+        await sendTelegramMsg(chatId, `🔍 چند حساب مرتبط با عبارت «${text}» یافت شد. لطفاً مورد نظر را انتخاب کنید:`, buttons);
         return res.status(200).json({ ok: true });
       }
 
