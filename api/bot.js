@@ -1,16 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-// اتصال به دیتابیس با استفاده از متغیرهای امنیتی تنظیم‌شده در ورسل
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-const telegramToken = process.env.TELEGRAM_TOKEN;
-const masterAdminId = process.env.MASTER_ADMIN_CHATID;
-const masterAdminEmail = process.env.MASTER_ADMIN_EMAIL;
+// اطلاعات و کلیدهای تنظیم‌شده به صورت مستقیم در کد
+const SUPABASE_URL = "https://zpehwkvtbiceurfpafiw.supabase.co";
+const SUPABASE_KEY = "sb_publishable__ZK44kWZES328UQJ7P_zzw_tZoc465D";
+const TELEGRAM_TOKEN = "8896092487:AAGc5sE1n8iSXwxNZ8HOdnRhUpsPod6Vx5U";
+const MASTER_ADMIN_ID = "802655440";
 
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-// راه‌اندازی اولیه کلاینت تلگرام با استفاده از فچ یا توکن محیطی
-const TELEGRAM_API = `https://api.telegram.org/bot${telegramToken}`;
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
 const userStates = {};
 
@@ -88,7 +85,7 @@ async function answerCallbackQuery(callbackQueryId, text = '', showAlert = false
 }
 
 async function isAuthorizedAdmin(userId) {
-  if (String(userId) === String(masterAdminId)) return true;
+  if (String(userId) === String(MASTER_ADMIN_ID)) return true;
   try {
     const { data: admins } = await supabase.from('admins').select('*');
     if (admins) {
@@ -134,7 +131,7 @@ async function getBrokerVerticalBalanceText(brokerId) {
 // ---------------- هسته اصلی سرورلس ربات ----------------
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
-    return res.status(200).send('Bot Server is Running & Ready securely via Vercel');
+    return res.status(200).send('Bot Server is Running & Ready');
   }
 
   try {
