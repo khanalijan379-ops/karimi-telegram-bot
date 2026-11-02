@@ -1,12 +1,15 @@
 /**
  * ==============================================================================
- * 🏛️ سامانه جامع، بزرگ و پیشرفته مدیریت صرافی و امانت‌داری کریمی
- * نسخه کامل، یکپارچه و به هم پیوسته سرور و ربات تلگرام (Full Enterprise Bot & Server - 1200+ Lines)
+ * 🏛️ سامانه جامع، کامل و پیشرفته مدیریت صرافی و امانت‌داری کریمی
+ * نسخه کامل سرور ربات تلگرام - Enterprise Full Architecture (1200 Lines Scope)
  * ==============================================================================
  */
 
 import { createClient } from '@supabase/supabase-js';
 
+// ==============================================================================
+// ۱. تنظیمات اتصال دیتابیس Supabase و توکن‌های شبکه تلگرام
+// ==============================================================================
 const SUPABASE_URL = "https://zpehwkvtbiceurfpafiw.supabase.co";
 const SUPABASE_KEY = "sb_publishable__ZK44kWZES328UQJ7P_zzw_tZoc465D";
 const TELEGRAM_TOKEN = "8896092487:AAGc5sE1n8iSXwxNZ8HOdnRhUpsPod6Vx5U";
@@ -15,6 +18,7 @@ const MASTER_ADMIN_ID = "802655440";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
+// حافظه موقت نشست‌ها و وضعیت‌های پردازش درخواست‌ها
 const userStates = {};
 const systemCache = {
   accounts: [],
@@ -24,9 +28,9 @@ const systemCache = {
   lastSyncTimestamp: null
 };
 
-/* ==============================================================================
- * 🛠️ ماژول ۱: توابع کمکی، تبدیل ارقام و مدیریت رشته‌ها (Utility Engine & Helpers)
- * ============================================================================== */
+// ==============================================================================
+// ۲. توابع استاندارد پردازش ارقام، تبدیل متون و فرمت‌دهی مالی
+// ==============================================================================
 
 function toEnglishDigits(str) {
   if (str === null || str === undefined) return '';
@@ -164,9 +168,9 @@ function parseBrokerAddressArray(rawAddr) {
   }
 }
 
-/* ==============================================================================
- * 📡 ماژول ۲: ارتباطات پیشرفته تلگرام (Telegram API Communication Engine)
- * ============================================================================== */
+// ==============================================================================
+// ۳. ماژول ارتباط مستقیم با ربات تلگرام (Telegram Webhook Communication)
+// ==============================================================================
 
 async function sendTelegramMsg(chatId, text, inlineKeyboard = null) {
   const body = { chat_id: chatId, text: text, parse_mode: 'Markdown' };
@@ -247,9 +251,9 @@ async function isAuthorizedAdmin(userId) {
   return false;
 }
 
-/* ==============================================================================
- * 🗄️ ماژول ۳: ارتباط با پایگاه داده Supabase (Database & Sync Engine)
- * ============================================================================== */
+// ==============================================================================
+// ۴. ماژول مدیریت جدول‌ها و داده‌های Supabase Database Engine
+// ==============================================================================
 
 async function fetchAllAccountsFromDb() {
   try {
@@ -341,9 +345,9 @@ async function updateBrokerAddressesInDb(brokerId, addressesArray) {
   }
 }
 
-/* ==============================================================================
- * 📊 ماژول ۴: محاسبات مالی، گزارشات عمودی و بیلان (Reporting & Accounting Engine)
- * ============================================================================== */
+// ==============================================================================
+// ۵. موتور محاسبه بیلان، آمار زنده و گزارش‌های تفکیکی (Financial Calculation)
+// ==============================================================================
 
 async function getBrokerVerticalBalanceText(brokerId) {
   const { data: txs } = await supabase.from('broker_transactions').select('*').eq('broker_id', brokerId);
@@ -447,9 +451,9 @@ async function calculateSystemGlobalBalanceSummary() {
   }
 }
 
-/* ==============================================================================
- * ⌨️ ماژول ۵: منوها، کیبوردها و رابط کاربری شیشه‌ای (UI Keyboards & Menus)
- * ============================================================================== */
+// ==============================================================================
+// ۶. منوها، دکمه‌های شیشه‌ای و ساختار کیبوردها (UI Markup Generators)
+// ==============================================================================
 
 function buildMainMenuKeyboard() {
   return [
@@ -488,20 +492,20 @@ function buildCurrencySelectionKeyboard(prefix = 'SET_CURR') {
   ];
 }
 
-/* ==============================================================================
- * 🧠 ماژول ۶: موتور پردازش و تحلیل مرکزی درخواست‌ها (Enterprise Handler & Router Engine)
- * ============================================================================== */
+// ==============================================================================
+// ۷. موتور اصلی پردازش درخواست‌ها (Server Main Routing Handler)
+// ==============================================================================
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).send('Enterprise Large Scale Bot Server Active & Ready (1200 Lines Structure)');
+    return res.status(200).send('Enterprise Bot Server Architecture Active & Ready');
   }
 
   try {
     const update = req.body;
     if (!update) return res.status(200).json({ ok: true });
 
-    // A. مدیریت پاسخ‌های دکمه‌های شیشه‌ای (Callback Query Router)
+    // A. مدیریت پاسخ‌های دکمه‌های شیشه‌ای (Callback Query Handler)
     if (update.callback_query) {
       const query = update.callback_query;
       const userId = query.from.id;
@@ -705,7 +709,7 @@ export default async function handler(req, res) {
 
       let st = userStates[userId];
 
-      // فرم مرحله‌ای ثبت معامله صرافی (حل کامل مشکل توقف در مرحله شرح و ثبت نهایی)
+      // فرم مرحله‌ای ثبت معامله صرافی (کاملاً اصلاح‌شده برای جلوگیری از توقف در بخش شرح)
       if (st && st.step) {
         if (st.step === 'WAIT_AMOUNT') {
           let amt = parseFloat(toEnglishDigits(text));
@@ -744,7 +748,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // جستجوی مشتری بر اساس نام یا شماره
+      // جستجوی هوشمند مشتری بر اساس نام یا شماره
       const { data: foundAccs } = await supabase.from('accounts').select('*').ilike('Name', `%${text}%`);
       if (foundAccs && foundAccs.length > 0) {
         let acc = foundAccs[0];
