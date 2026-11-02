@@ -1,10 +1,10 @@
 const TelegramBot = require('node-telegram-bot-api');
 const { createClient } = require('@supabase/supabase-js');
 
-// تنظیمات اتصال به Supabase و توکن تلگرام
+// تنظیمات اتصال به Supabase و توکن جدید تلگرام
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://zpehwkvtbiceurfpafiw.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_KEY || "sb_publishable__ZK44kWZES328UQJ7P_zzw_tZoc465D";
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || "8900776593:AAG1OBNUY_4oo5VJ7Ohmrz9EgHYNmQeGH3Y";
+const TELEGRAM_TOKEN = "8910553746:AAGxaqngRMUAVMTMb6yRzzTU-YAy7HiNhTk";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const bot = new TelegramBot(TELEGRAM_TOKEN);
@@ -43,7 +43,7 @@ async function isAuthorizedAdmin(userId) {
   return false;
 }
 
-// پارسر هوشمند متون تراکنش
+// پارسر هوشمند متون تراکنش (با تطبیق دقیق جهت‌ها)
 function parseTransactionText(text) {
   const cleanText = toEnglishDigits(text);
   const amountMatch = cleanText.match(/\d+(\.\d+)?/);
@@ -54,7 +54,11 @@ function parseTransactionText(text) {
   else if (text.includes('تومان') || text.includes('تومن')) currency = 'تومان';
   else if (text.includes('دینار') || text.includes('IQD')) currency = 'IQD';
 
-  const isCredit = text.includes('دریافت') || text.includes('رسید') || text.includes('آمد') || text.includes('بستانکار') || text.includes('گرفتم');
+  // منطق دقیق جهت‌ها بر اساس سیستم وب
+  let isCredit = text.includes('دریافت') || text.includes('رسید') || text.includes('آمد') || text.includes('بستانکار') || text.includes('گرفتم') || text.includes('حواله آمد');
+  if (text.includes('دادم') || text.includes('رساندم') || text.includes('پرداخت') || text.includes('فرستادم')) {
+    isCredit = false;
+  }
   const direction = isCredit ? 'بستانکار' : 'بدهکار';
 
   let opType = 'امانت';
@@ -232,8 +236,7 @@ module.exports = async (req, res) => {
 
         await bot.answerCallbackQuery(query.id);
         await editTelegramMsg(chatId, msgId, detailText, [
-          [{ text: '💬 ارسال رسید به واتساپ', callback_data: `SEND_WA_TX:${txId}` }],
-          [{ text: '✏️ ویرایش تراکنش', callback_data: `EDIT_TX:${txId}` }, { text: '🗑️ حذف تراکنش', callback_data: `DELETE_TX:${txId}` }],
+          [{ text: '🗑️ حذف تراکنش', callback_data: `DELETE_TX:${txId}` }],
           [{ text: '🔙 لیست تراکنش‌ها', callback_data: 'CUST_VIEW_TXS' }]
         ]);
       }
@@ -339,20 +342,69 @@ module.exports = async (req, res) => {
         ]);
       }
 
+      else if (data === 'BROKER_VIEW_TXS') {
+        const st = userStates[userId];
+        if (!st || !st.brokerId) return res.status(200).send('OK');
+
+        const { data: bTxs } = await supabase.from('broker_transactions').select('*').eq('broker_id', st.brokerId);
+        if (!bTxs || bTxs.length === 0) {
+          await bot.answerCallbackQuery(query.id, { text: 'تراکنشی یافت نشد', show_alert: true });
+          return res.status(200).send('OK');
+        }
+
+        let txBtns = bTxs.slice(-10).reverse().map(t => {
+          let dirSymbol = (t.direction || '').includes('بستانکار') ? '🟢' : '🔴';
+          return [{
+            text: `${dirSymbol} ${formatMoney(t.amount_final || t.amount_initial)} ${t.currency} - ${t.operation_type}`,
+            callback_data: `VIEW_BROKER_TX:${t.broker_tx_id}`
+          }];
+        });
+        txBtns.push([{ text: '🔙 بازگشت', callback_data: `SELECT_BROKER:${st.brokerId}` }]);
+
+        await bot.answerCallbackQuery(query.id);
+        await editTelegramMsg(chatId, msgId, `📜 *۱۰ معامله اخیر صرافی:* *${st.brokerName}*`, txBtns);
+      }
+
+      else if (data.startsWith('VIEW_BROKER_TX:')) {
+        const bTxId = data.split(':')[1];
+        const { data: tx } = await supabase.from('broker_transactions').select('*').eq('broker_tx_id', bTxId).single();
+        if (!tx) return res.status(200).send('OK');
+
+        const st = userStates[userId] || {};
+        let detailText = `🔍 *جزئیات معامله صرافی:* \`${toEnglishDigits(bTxId)}\`\n\n` +
+          `💰 مبلغ: *${formatMoney(tx.amount_final || tx.amount_initial)} ${tx.currency}*\n` +
+          `🔄 جهت: *${tx.direction}*\n` +
+          `📋 نوع عملیات: *${tx.operation_type}*\n` +
+          `📅 تاریخ: \`${toEnglishDigits((tx.date || '').split('T')[0])}\`\n` +
+          `📍 آدرس: _${tx.address_dashboard || '-'_}\n` +
+          `📝 شرح: _${tx.description || '-'}_`;
+
+        await bot.answerCallbackQuery(query.id);
+        await editTelegramMsg(chatId, msgId, detailText, [
+          [{ text: '🗑️ حذف معامله', callback_data: `DELETE_BROKER_TX:${bTxId}` }],
+          [{ text: '🔙 لیست معاملات', callback_data: 'BROKER_VIEW_TXS' }]
+        ]);
+      }
+
+      else if (data.startsWith('DELETE_BROKER_TX:')) {
+        const bTxId = data.split(':')[1];
+        await supabase.from('broker_transactions').delete().eq('broker_tx_id', bTxId);
+        await bot.answerCallbackQuery(query.id, { text: 'معامله صرافی حذف گردید.' });
+
+        const st = userStates[userId];
+        if (st && st.brokerId) {
+          await editTelegramMsg(chatId, msgId, '✅ *معامله با موفقیت حذف شد.*', [
+            [{ text: '🔙 بازگشت به پنل صرافی', callback_data: `SELECT_BROKER:${st.brokerId}` }]
+          ]);
+        }
+      }
+
       else if (data === 'BROKER_ADD_TX') {
         const st = userStates[userId];
         st.step = 'WAITING_BROKER_TX_TEXT';
         await bot.answerCallbackQuery(query.id);
         await editTelegramMsg(chatId, msgId, `📝 *ثبت معامله برای صرافی:* *${st.brokerName}*\n\nلطفاً متن معامله را بفرستید.\n📌 *مثال:* \`ارسال شد 1000 دلار بابت حواله به آدرس کابل\``, [
           [{ text: '❌ انصراف', callback_data: `SELECT_BROKER:${st.brokerId}` }]
-        ]);
-      }
-
-      else if (data === 'CANCEL_CURRENT') {
-        delete userStates[userId];
-        await bot.answerCallbackQuery(query.id, { text: 'انصراف داده شد.' });
-        await editTelegramMsg(chatId, msgId, '❌ *عملیات لغو گردید.*', [
-          [{ text: '🏠 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]
         ]);
       }
 
@@ -407,20 +459,34 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
-      // ساخت نام حساب جدید
+      // ساخت نام حساب جدید (با اخذ شماره تماس الزامی)
       if (st && st.step === 'WAITING_NEW_ACC_NAME') {
+        st.tempName = text;
+        st.step = 'WAITING_NEW_ACC_PHONE';
+        await sendTelegramMsg(chatId, `📞 لطفاً **شماره تماس با کد کشور** را برای مشتری *${text}* وارد کنید (مثلاً: \`+93790000000\` یا \`+989120000000\`):`);
+        return res.status(200).send('OK');
+      }
+
+      if (st && st.step === 'WAITING_NEW_ACC_PHONE') {
+        const cleanPhone = toEnglishDigits(text);
+        if (!cleanPhone.startsWith('+') || cleanPhone.length < 10) {
+          await sendTelegramMsg(chatId, `⚠️ شماره تلفن نامعتبر است! حتماً باید **با کد کشور (مثل +93 یا +98)** شروع شود. مجدد وارد کنید:`);
+          return res.status(200).send('OK');
+        }
+
         const newAccId = "ACC-" + Math.floor(100000 + Math.random() * 900000);
         const { error } = await supabase.from('accounts').insert([{
           AccountID: newAccId,
-          Name: text,
+          Name: st.tempName,
+          Phone: cleanPhone,
           CreatedBy: String(userId)
         }]);
 
         if (error) {
           await sendTelegramMsg(chatId, '❌ خطا در افتتاح حساب: ' + error.message);
         } else {
-          userStates[userId] = { accId: newAccId, accName: text, step: 'CUSTOMER_MENU' };
-          await sendTelegramMsg(chatId, `🎉 *حساب جدید با موفقیت افتتاح شد.*\n\n👤 نام: *${text}*\n🆔 کد حساب: \`${newAccId}\``, [
+          userStates[userId] = { accId: newAccId, accName: st.tempName, step: 'CUSTOMER_MENU' };
+          await sendTelegramMsg(chatId, `🎉 *حساب جدید با موفقیت افتتاح شد.*\n\n👤 نام: *${st.tempName}*\n📞 تلفن: \`${cleanPhone}\`\n🆔 کد حساب: \`${newAccId}\``, [
             [{ text: '➕ ثبت اولین تراکنش', callback_data: 'CUST_ADD_TX' }],
             [{ text: '👤 پنل مدیریت مشتری', callback_data: `SELECT_CUST:${newAccId}` }]
           ]);
@@ -454,19 +520,19 @@ module.exports = async (req, res) => {
         if (error) {
           await sendTelegramMsg(chatId, '❌ خطا در ثبت تراکنش: ' + error.message);
         } else {
-          await sendTelegramMsg(
-            chatId,
-            `✅ *تراکنش با موفقیت ثبت شد.*\n\n` +
+          let successResponse = `✅ *تراکنش با موفقیت ثبت شد.*\n\n` +
             `👤 مشتری: *${st.accName}*\n` +
             `🆔 کد: \`${transId}\`\n` +
             `💰 مبلغ: *${formatMoney(parsed.amount)} ${parsed.currency}* (${parsed.direction})\n` +
             `📋 نوع: *${parsed.opType}*\n` +
-            `📝 شرح: _${text}_`,
-            [
-              [{ text: '➕ ثبت تراکنش دیگر', callback_data: 'CUST_ADD_TX' }],
-              [{ text: '👤 بازگشت به پنل مشتری', callback_data: `SELECT_CUST:${st.accId}` }]
-            ]
-          );
+            `📝 شرح: _${text}_`;
+
+          await sendTelegramMsg(chatId, successResponse, [
+            [{ text: '➕ ثبت تراکنش دیگر', callback_data: 'CUST_ADD_TX' }],
+            [{ text: '👤 بازگشت به پنل مشتری', callback_data: `SELECT_CUST:${st.accId}` }]
+          ]);
+          // ارسال گزارش به ادمین اصلی
+          await sendTelegramMsg(MASTER_ADMIN_ID, `🔔 *گزارش تراکنش مشتری*\n${successResponse}`);
         }
         return res.status(200).send('OK');
       }
@@ -491,23 +557,25 @@ module.exports = async (req, res) => {
           currency: parsed.currency,
           amount_initial: parsed.amount,
           amount_final: parsed.amount,
-          description: text
+          description: text,
+          address_dashboard: text.includes('آدرس') ? text.split('آدرس')[1].trim() : '-'
         }]);
 
         if (error) {
           await sendTelegramMsg(chatId, '❌ خطا در ثبت معامله صرافی: ' + error.message);
         } else {
-          await sendTelegramMsg(
-            chatId,
-            `✅ *معامله صرافی با موفقیت ثبت شد.*\n\n` +
+          let verticalRep = await getBrokerVerticalBalanceText(st.brokerId);
+          let brokerMsg = `✅ *معامله صرافی با موفقیت ثبت شد.*\n\n` +
             `🏛️ صرافی: *${st.brokerName}*\n` +
             `🆔 کد: \`${brokerTxId}\`\n` +
             `💰 مبلغ: *${formatMoney(parsed.amount)} ${parsed.currency}* (${parsed.direction})\n` +
-            `📝 شرح: _${text}_`,
-            [
-              [{ text: '🏛️ بازگشت به پنل صرافی', callback_data: `SELECT_BROKER:${st.brokerId}` }]
-            ]
-          );
+            `📝 شرح: _${text}_\n` +
+            `${verticalRep}`;
+
+          await sendTelegramMsg(chatId, brokerMsg, [
+            [{ text: '🏛️ بازگشت به پنل صرافی', callback_data: `SELECT_BROKER:${st.brokerId}` }]
+          ]);
+          await sendTelegramMsg(MASTER_ADMIN_ID, `🔔 *گزارش معامله صرافی*\n${brokerMsg}`);
         }
         return res.status(200).send('OK');
       }
