@@ -1,0 +1,9 @@
+{
+  "name": "telegram-supabase-bot",
+  "version": "1.0.0",
+  "main": "api/bot.js",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "node-telegram-bot-api": "^0.64.0"
+  }
+}
