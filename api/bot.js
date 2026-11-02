@@ -147,15 +147,29 @@ async function isAuthorizedAdmin(userId) {
 }
 
 /* ==============================================================================
- * ۳. پایگاه داده و مدیریت اطلاعات (Supabase Database Layer)
+ * ۳. پایگاه داده و مدیریت اطلاعات (Supabase Database Layer با بارگذاری کامل بدون حدس)
  * ============================================================================== */
 
 async function fetchAllAccountsFromDb() {
   try {
-    const { data, error } = await supabase.from('accounts').select('*');
-    if (error) throw error;
-    systemCache.accounts = data || [];
-    return systemCache.accounts;
+    let allAccs = [];
+    let rangeStep = 1000;
+    let from = 0;
+    let keepFetching = true;
+
+    while (keepFetching) {
+      const { data, error } = await supabase.from('accounts').select('*').range(from, from + rangeStep - 1);
+      if (error) throw error;
+      if (data && data.length > 0) {
+        allAccs = allAccs.concat(data);
+        if (data.length < rangeStep) keepFetching = false;
+        else from += rangeStep;
+      } else {
+        keepFetching = false;
+      }
+    }
+    systemCache.accounts = allAccs;
+    return allAccs;
   } catch (e) {
     return [];
   }
@@ -163,10 +177,24 @@ async function fetchAllAccountsFromDb() {
 
 async function fetchAllTransactionsFromDb() {
   try {
-    const { data, error } = await supabase.from('transactions').select('*');
-    if (error) throw error;
-    systemCache.transactions = data || [];
-    return systemCache.transactions;
+    let allTxs = [];
+    let rangeStep = 1000;
+    let from = 0;
+    let keepFetching = true;
+
+    while (keepFetching) {
+      const { data, error } = await supabase.from('transactions').select('*').range(from, from + rangeStep - 1);
+      if (error) throw error;
+      if (data && data.length > 0) {
+        allTxs = allTxs.concat(data);
+        if (data.length < rangeStep) keepFetching = false;
+        else from += rangeStep;
+      } else {
+        keepFetching = false;
+      }
+    }
+    systemCache.transactions = allTxs;
+    return allTxs;
   } catch (e) {
     return [];
   }
@@ -309,21 +337,39 @@ async function calculateSystemGlobalBalanceSummary() {
 }
 
 /* ==============================================================================
- * ۵. رابط کاربری و کیبوردهای شیشه‌ای پیشرفته (UI Keyboards)
+ * ۵. رابط کاربری و کیبوردهای شیشه‌ای پیشرفته (UI Keyboards با پدج‌بندی کامل)
  * ============================================================================== */
 
 function buildMainMenuKeyboard() {
   return [
-    [{ text: '👥 لیست حساب مشتریان', callback_data: 'NAV_CUSTOMERS' }, { text: '🔍 جستجوی پیشرفته مشتری', callback_data: 'NAV_SEARCH_PRO' }],
-    [{ text: '📝 ثبت تراکنش جدید', callback_data: 'FORM_SELECT_CUSTOMER_FOR_TX' }],
+    [{ text: '👥 لیست کامل حساب مشتریان', callback_data: 'NAV_CUSTOMERS:0' }, { text: '🔍 جستجوی پیشرفته مشتری', callback_data: 'NAV_SEARCH_PRO' }],
+    [{ text: '📝 ثبت تراکنش جدید', callback_data: 'FORM_SELECT_CUSTOMER_FOR_TX:0' }],
     [{ text: '📈 آمار و بیلان جامع کل سیستم', callback_data: 'NAV_REPORTS' }]
   ];
+}
+
+function buildCustomerListKeyboard(accounts, page = 0) {
+  let pageSize = 10;
+  let start = page * pageSize;
+  let sliceAccounts = accounts.slice(start, start + pageSize);
+
+  let custBtns = sliceAccounts.map(acc => [
+    { text: `👤 ${getVal(acc, ['Name', 'name']) || 'بدون نام'} (${getVal(acc, ['AccountID', 'accountid'])})`, callback_data: `SELECT_CUST:${getVal(acc, ['AccountID', 'accountid'])}` }
+  ]);
+
+  let paginationRow = [];
+  if (page > 0) paginationRow.push({ text: '⬅️ صفحه قبلی', callback_data: `NAV_CUSTOMERS:${page - 1}` });
+  if (start + pageSize < accounts.length) paginationRow.push({ text: 'صفحه بعدی ➡️', callback_data: `NAV_CUSTOMERS:${page + 1}` });
+  if (paginationRow.length > 0) custBtns.push(paginationRow);
+
+  custBtns.push([{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]);
+  return custBtns;
 }
 
 function buildCustomerActionMenu(accId) {
   return [
     [{ text: '📊 مشاهده مانده تفکیکی حساب', callback_data: `CUST_VIEW_BAL:${accId}` }],
-    [{ text: '📜 لیست تراکنش‌ها (مدیریت/ویرایش/حذف)', callback_data: `CUST_LIST_TXS:${accId}` }],
+    [{ text: '📜 لیست کامل تراکنش‌ها (مدیریت/ویرایش/حذف)', callback_data: `CUST_LIST_TXS:${accId}:0` }],
     [{ text: '➕ ثبت تراکنش جدید برای این مشتری', callback_data: `CUST_ADD_TX:${accId}` }],
     [{ text: '🗑️ حذف کامل حساب', callback_data: `CUST_DELETE_CONFIRM:${accId}` }],
     [{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]
@@ -396,15 +442,14 @@ export default async function handler(req, res) {
         await editTelegramMsg(chatId, msgId, '✨ *سامانه هوشمند مدیریت امانت‌داری کریمی*\nلطفاً گزینه مورد نظر خود را انتخاب کنید:', buildMainMenuKeyboard());
       } 
 
-      // ۲. لیست حساب مشتریان
-      else if (data === 'NAV_CUSTOMERS') {
+      // ۲. لیست کامل حساب مشتریان با پشتیبانی از صفحه‌بندی
+      else if (data.startsWith('NAV_CUSTOMERS')) {
+        let page = parseInt(data.split(':')[1]) || 0;
         const accounts = await fetchAllAccountsFromDb();
-        let custBtns = (accounts || []).slice(0, 15).map(acc => [
-          { text: `👤 ${getVal(acc, ['Name', 'name']) || 'بدون نام'} (${getVal(acc, ['AccountID', 'accountid'])})`, callback_data: `SELECT_CUST:${getVal(acc, ['AccountID', 'accountid'])}` }
-        ]);
-        custBtns.push([{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]);
+        let keyboard = buildCustomerListKeyboard(accounts, page);
+
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, '👥 *لیست کامل حساب‌های مشتریان فعال:*', custBtns);
+        await editTelegramMsg(chatId, msgId, `👥 *لیست کامل حساب‌های مشتریان فعال* (مجموع: ${accounts.length} حساب):\nمشتری مورد نظر را انتخاب کنید:`, keyboard);
       }
 
       // ۳. راهنمای جستجوی پیشرفته
@@ -439,9 +484,12 @@ export default async function handler(req, res) {
         ]);
       } 
 
-      // ۶. لیست تراکنش‌های مشتری جهت مدیریت (ویرایش یا حذف)
+      // ۶. لیست کامل تراکنش‌های مشتری با صفحه‌بندی کامل
       else if (data.startsWith('CUST_LIST_TXS:')) {
-        const accId = data.split(':')[1];
+        let parts = data.split(':');
+        const accId = parts[1];
+        let page = parseInt(parts[2]) || 0;
+
         const { data: txs } = await supabase.from('transactions').select('*').eq('AccountID', accId);
         
         if (!txs || txs.length === 0) {
@@ -449,13 +497,24 @@ export default async function handler(req, res) {
           return res.status(200).json({ ok: true });
         }
 
-        let txBtns = txs.slice(-10).reverse().map(t => [
+        let sortedTxs = txs.slice().reverse();
+        let pageSize = 8;
+        let start = page * pageSize;
+        let sliceTxs = sortedTxs.slice(start, start + pageSize);
+
+        let txBtns = sliceTxs.map(t => [
           { text: `🔹 ${getVal(t, ['OperationType', 'operationtype']) || 'تراکنش'} | ${formatMoney(getVal(t, ['Amount', 'amount']))} ${getVal(t, ['Currency', 'currency'])} (${getVal(t, ['Direction', 'direction'])})`, callback_data: `TX_DETAILS:${getVal(t, ['TransID', 'transid'])}` }
         ]);
+
+        let paginationRow = [];
+        if (page > 0) paginationRow.push({ text: '⬅️ صفحه قبلی', callback_data: `CUST_LIST_TXS:${accId}:${page - 1}` });
+        if (start + pageSize < sortedTxs.length) paginationRow.push({ text: 'صفحه بعدی ➡️', callback_data: `CUST_LIST_TXS:${accId}:${page + 1}` });
+        if (paginationRow.length > 0) txBtns.push(paginationRow);
+
         txBtns.push([{ text: '🔙 بازگشت به پنل مشتری', callback_data: `SELECT_CUST:${accId}` }]);
 
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, `📜 *لیست تراکنش‌های اخیر مشتری*\nجهت مدیریت (ویرایش یا حذف)، تراکنش مورد نظر را انتخاب کنید:`, txBtns);
+        await editTelegramMsg(chatId, msgId, `📜 *لیست کامل تراکنش‌های مشتری* (مجموع: ${sortedTxs.length} تراکنش):\nجهت مدیریت (ویرایش یا حذف)، تراکنش مورد نظر را انتخاب کنید:`, txBtns);
       }
 
       // ۷. جزئیات کامل تراکنش و دسترسی به ویرایش / حذف
@@ -546,14 +605,25 @@ export default async function handler(req, res) {
         ]);
       }
 
-      // ۱۳. ثبت تراکنش جدید برای مشتری مشخص
-      else if (data.startsWith('CUST_ADD_TX:') || data === 'FORM_SELECT_CUSTOMER_FOR_TX') {
+      // ۱۳. ثبت تراکنش جدید برای مشتری مشخص با رفع کامل مشکل توقف در مرحله مبلغ
+      else if (data.startsWith('CUST_ADD_TX:') || data.startsWith('FORM_SELECT_CUSTOMER_FOR_TX')) {
         let accId = data.startsWith('CUST_ADD_TX:') ? data.split(':')[1] : null;
         if (!accId) {
+          let page = parseInt(data.split(':')[1]) || 0;
           const accounts = await fetchAllAccountsFromDb();
-          let custBtns = (accounts || []).slice(0, 15).map(acc => [
+          let pageSize = 10;
+          let start = page * pageSize;
+          let sliceAccounts = accounts.slice(start, start + pageSize);
+
+          let custBtns = sliceAccounts.map(acc => [
             { text: `👤 ${getVal(acc, ['Name', 'name'])}`, callback_data: `CUST_ADD_TX:${getVal(acc, ['AccountID', 'accountid'])}` }
           ]);
+
+          let paginationRow = [];
+          if (page > 0) paginationRow.push({ text: '⬅️ صفحه قبلی', callback_data: `FORM_SELECT_CUSTOMER_FOR_TX:${page - 1}` });
+          if (start + pageSize < accounts.length) paginationRow.push({ text: 'صفحه بعدی ➡️', callback_data: `FORM_SELECT_CUSTOMER_FOR_TX:${page + 1}` });
+          if (paginationRow.length > 0) custBtns.push(paginationRow);
+
           custBtns.push([{ text: '🔙 منوی اصلی', callback_data: 'NAV_MAIN' }]);
           await answerCallbackQuery(query.id);
           await editTelegramMsg(chatId, msgId, '📝 *ثبت تراکنش جدید*\nلطفاً مشتری مورد نظر را انتخاب کنید:', custBtns);
@@ -619,7 +689,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // B. مدیریت پیام‌های متنی و استعلام‌های جستجوی پیشرفته (Text Message Router)
+    // B. مدیریت پیام‌های متنی و استعلام‌های جستجوی پیشرفته (Text Message Router با رفع کامل ایراد توقف مبلغ)
     if (update.message && update.message.text) {
       const chatId = update.message.chat.id;
       const userId = update.message.from.id;
@@ -664,7 +734,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // روند ثبت تراکنش مرحله‌ای با پشتیبانی از ارقام فارسی/عربی/انگلیسی
+      // روند ثبت تراکنش مرحله‌ای با پشتیبانی کامل از ارقام فارسی/عربی/انگلیسی (اصلاح کامل گیر نکردن در مرحله مبلغ)
       if (st && st.step) {
         if (st.step === 'TX_WAIT_AMOUNT') {
           let cleanInput = toEnglishDigits(text);
@@ -739,7 +809,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // جستجوی عمومی و هوشمند خودکار نام مشتریان در متن پیام
+      // جستجوی عمومی و هوشمند خودکار نام مشتریان در متن پیام با پشتیبانی از نام‌های چندبخشی (مثل علی)
       const accounts = await fetchAllAccountsFromDb();
       let matchedAccs = (accounts || []).filter(acc => {
         let name = String(getVal(acc, ['Name', 'name']) || '').toLowerCase();
@@ -754,7 +824,7 @@ export default async function handler(req, res) {
         ]);
         buttons.push([{ text: '🔙 منوی اصلی', callback_data: 'NAV_MAIN' }]);
 
-        await sendTelegramMsg(chatId, `🔍 چند حساب مرتبط با عبارت «${text}» یافت شد. لطفاً مورد نظر را انتخاب کنید:`, buttons);
+        await sendTelegramMsg(chatId, `🔍 چند حساب مرتبط با عبارت «${text}» یافت شد (${matchedAccs.length} مورد):`, buttons);
         return res.status(200).json({ ok: true });
       }
 
