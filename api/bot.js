@@ -1,12 +1,15 @@
 /**
  * ==============================================================================
- * 🏛️ سامانه جامع و هوشمند ربات تلگرام صرافی و امانت‌داری کریمی
- * نسخه پیشرفته و جامع با تحلیل دقیق شرح، تطبیق جزئی آدرس و جهت مشتری (Smart NLP Parser - v8)
+ * 🏛️ سامانه جامع و بزرگ مدیریت صرافی، امانت‌داری و سیستم پیشرفته کارگزاری کریمی
+ * نسخه نهایی و کامل سرور ربات تلگرام - Enterprise Large Architecture (1200+ Lines Scope)
  * ==============================================================================
  */
 
 import { createClient } from '@supabase/supabase-js';
 
+// ==============================================================================
+// 1. تنظیمات پایگاه داده و توکن‌های دسترسی سیستم
+// ==============================================================================
 const SUPABASE_URL = "https://zpehwkvtbiceurfpafiw.supabase.co";
 const SUPABASE_KEY = "sb_publishable__ZK44kWZES328UQJ7P_zzw_tZoc465D";
 const TELEGRAM_TOKEN = "8896092487:AAGc5sE1n8iSXwxNZ8HOdnRhUpsPod6Vx5U";
@@ -15,7 +18,19 @@ const MASTER_ADMIN_ID = "802655440";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
+// حافظه موقت حالت کاربران برای ربات تلگرام
 const userStates = {};
+const systemCache = {
+  accounts: [],
+  brokers: [],
+  admins: [],
+  rates: {},
+  lastSync: null
+};
+
+// ==============================================================================
+// 2. توابع کمکی، تبدیل ارقام و پردازش رشته‌ها (Utility Functions)
+// ==============================================================================
 
 function toEnglishDigits(str) {
   if (str === null || str === undefined) return '';
@@ -24,11 +39,138 @@ function toEnglishDigits(str) {
   });
 }
 
+function toPersianDigits(str) {
+  if (str === null || str === undefined) return '';
+  const farsiDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+  return String(str).replace(/\d/g, function (x) {
+    return farsiDigits[x];
+  });
+}
+
 function formatMoney(amount) {
   let num = parseFloat(amount);
   if (isNaN(num)) return '0';
   return toEnglishDigits(num.toLocaleString('en-US'));
 }
+
+function getVal(obj, keys) {
+  if (!obj) return '';
+  for (let k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k];
+    let lower = k.toLowerCase();
+    for (let prop in obj) {
+      if (prop.toLowerCase() === lower && obj[prop] !== undefined && obj[prop] !== null && obj[prop] !== "") {
+        return obj[prop];
+      }
+    }
+  }
+  return '';
+}
+
+function sanitizeText(text) {
+  if (!text) return '';
+  return String(text).trim().replace(/[<>]/g, '');
+}
+
+function generateUniqueId(prefix = 'TX') {
+  return prefix + '-' + Math.floor(10000000 + Math.random() * 90000000);
+}
+
+function getCurrentTimestamp() {
+  return new Date().toISOString();
+}
+
+function getLocalDateString() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function validatePhoneNumber(phone) {
+  if (!phone) return '';
+  let cleaned = toEnglishDigits(phone).replace(/\D/g, '');
+  return cleaned;
+}
+
+function calculateExchangeRate(initial, rate, mode = 'divide') {
+  let init = parseFloat(initial) || 0;
+  let r = parseFloat(rate) || 0;
+  if (r <= 0) return init;
+  if (mode === 'multiply') {
+    return parseFloat((init * r).toFixed(2));
+  } else {
+    return parseFloat((init / r).toFixed(2));
+  }
+}
+
+function cleanTransactionDescription(desc) {
+  if (!desc) return '';
+  return sanitizeText(desc).replace(/\+/g, ' ');
+}
+
+function buildStructuredLogObject(actionType, details) {
+  return {
+    timestamp: getCurrentTimestamp(),
+    action: actionType,
+    payload: details,
+    status: 'success'
+  };
+}
+
+function logSystemActivity(msg) {
+  console.log(`[SYSTEM LOG ${getCurrentTimestamp()}] ${msg}`);
+}
+
+function verifyAdminPermissionLevel(userId) {
+  return String(userId) === String(MASTER_ADMIN_ID);
+}
+
+function formatCurrencyCode(curr) {
+  if (!curr) return 'USD';
+  let clean = String(curr).trim().toUpperCase();
+  if (clean.includes('دینار') || clean === 'IQD') return 'IQD';
+  if (clean.includes('تومان') || clean === 'TOM') return 'تومان';
+  if (clean.includes('افغانی') || clean === 'AFN') return 'AFN';
+  return 'USD';
+}
+
+function serializeObjectSafely(obj) {
+  try {
+    return JSON.stringify(obj);
+  } catch (e) {
+    return '{}';
+  }
+}
+
+function deserializeObjectSafely(str) {
+  try {
+    return JSON.parse(str);
+  } catch (e) {
+    return {};
+  }
+}
+
+function normalizeDirectionKeyword(dirStr) {
+  if (!dirStr) return 'بستانکار';
+  let text = String(dirStr).toLowerCase();
+  if (text.includes('برد') || text.includes('برداشت') || text.includes('بدهکار') || text.includes('دادم')) {
+    return 'بدهکار';
+  }
+  return 'بستانکار';
+}
+
+function parseBrokerAddressArray(rawAddr) {
+  if (!rawAddr) return [];
+  if (Array.isArray(rawAddr)) return rawAddr;
+  try {
+    let parsed = JSON.parse(rawAddr);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return String(rawAddr).split('\n').map(a => a.trim()).filter(Boolean);
+  }
+}
+
+// ==============================================================================
+// 3. ماژول ارتباطات تلگرام (Telegram API Communication Engine)
+// ==============================================================================
 
 async function sendTelegramMsg(chatId, text, inlineKeyboard = null) {
   const body = { chat_id: chatId, text: text, parse_mode: 'Markdown' };
@@ -72,25 +214,147 @@ async function answerCallbackQuery(callbackQueryId, text = '', showAlert = false
   }
 }
 
+async function deleteTelegramMessage(chatId, messageId) {
+  try {
+    await fetch(`${TELEGRAM_API}/deleteMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId })
+    });
+  } catch (err) {
+    console.error("Delete Message Error:", err);
+  }
+}
+
+async function sendPhotoToTelegram(chatId, photoUrl, captionText = '') {
+  try {
+    await fetch(`${TELEGRAM_API}/sendPhoto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption: captionText, parse_mode: 'Markdown' })
+    });
+  } catch (err) {
+    console.error("Send Photo Error:", err);
+  }
+}
+
 async function isAuthorizedAdmin(userId) {
   if (String(userId) === String(MASTER_ADMIN_ID)) return true;
   try {
     const { data: admins } = await supabase.from('admins').select('*');
     if (admins) {
-      return admins.some(adm => String(adm.ChatID || adm.chatid || '') === String(userId));
+      return admins.some(adm => String(getVal(adm, ['ChatID', 'chatid', 'id']) || '') === String(userId));
     }
   } catch (e) {
-    console.error("Auth Error:", e);
+    console.error("Auth Check Error:", e);
   }
   return false;
 }
+
+// ==============================================================================
+// 4. ماژول مدیریت دیتابیس Supabase و همگام‌سازی (Database & Sync Engine)
+// ==============================================================================
+
+async function fetchAllAccountsFromDb() {
+  try {
+    const { data, error } = await supabase.from('accounts').select('*');
+    if (error) throw error;
+    systemCache.accounts = data || [];
+    return systemCache.accounts;
+  } catch (e) {
+    console.error("Fetch Accounts Error:", e);
+    return [];
+  }
+}
+
+async function fetchAllBrokersFromDb() {
+  try {
+    const { data, error } = await supabase.from('brokers').select('*');
+    if (error) throw error;
+    systemCache.brokers = data || [];
+    return systemCache.brokers;
+  } catch (e) {
+    console.error("Fetch Brokers Error:", e);
+    return [];
+  }
+}
+
+async function fetchAllAdminsFromDb() {
+  try {
+    const { data, error } = await supabase.from('admins').select('*');
+    if (error) throw error;
+    systemCache.admins = data || [];
+    return systemCache.admins;
+  } catch (e) {
+    console.error("Fetch Admins Error:", e);
+    return [];
+  }
+}
+
+async function getBrokerById(brokerId) {
+  try {
+    const { data, error } = await supabase.from('brokers').select('*').eq('broker_id', brokerId).single();
+    if (error) return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function getAccountById(accId) {
+  try {
+    const { data, error } = await supabase.from('accounts').select('*').eq('AccountID', accId).single();
+    if (error) return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function insertBrokerTransaction(txPayload) {
+  try {
+    const { data, error } = await supabase.from('broker_transactions').insert([txPayload]);
+    if (error) throw error;
+    return { success: true, data };
+  } catch (e) {
+    console.error("Insert Broker Tx Error:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+async function insertCustomerTransaction(txPayload) {
+  try {
+    const { data, error } = await supabase.from('transactions').insert([txPayload]);
+    if (error) throw error;
+    return { success: true, data };
+  } catch (e) {
+    console.error("Insert Customer Tx Error:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+async function updateBrokerAddressesInDb(brokerId, addressesArray) {
+  try {
+    let jsonStr = JSON.stringify(addressesArray);
+    const { data, error } = await supabase.from('brokers').update({ addresses: jsonStr }).eq('broker_id', brokerId);
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.error("Update Broker Addresses Error:", e);
+    return false;
+  }
+}
+
+// ==============================================================================
+// 5. موتور محاسبات مالی، گزارشات عمودی و بیلان (Reporting & Accounting Engine)
+// ==============================================================================
 
 async function getBrokerVerticalBalanceText(brokerId) {
   const { data: txs } = await supabase.from('broker_transactions').select('*').eq('broker_id', brokerId);
   let currencyTotals = {};
   if (txs) {
     txs.forEach(tx => {
-      let curr = (tx.currency || 'USD').toUpperCase();
+      let curr = formatCurrencyCode(tx.currency);
       let dir = tx.direction || '';
       let amt = parseFloat(tx.amount_final || tx.amount_initial) || 0;
       if (!currencyTotals[curr]) currencyTotals[curr] = { creditor: 0, debtor: 0 };
@@ -106,10 +370,11 @@ async function getBrokerVerticalBalanceText(brokerId) {
     let cred = currencyTotals[curr].creditor;
     let debt = currencyTotals[curr].debtor;
     let net = cred - debt;
+    let statusText = net >= 0 ? "بستانکار" : "بدهکار";
     lines.push(`🔹 *ارز ${curr}:*`);
     lines.push(`  • کل بستانکار: \`${formatMoney(cred)}\``);
     lines.push(`  • کل بدهکار: \`${formatMoney(debt)}\``);
-    lines.push(`  • مانده نهایی: *${formatMoney(Math.abs(net))} ${curr} (${net >= 0 ? "بستانکار" : "بدهکار"})*`);
+    lines.push(`  • مانده نهایی: *${formatMoney(Math.abs(net))} ${curr} (${statusText})*`);
     lines.push(`-----------------------------------`);
   }
   return hasItem ? lines.join("\n") : "\n📊 گزارش صرافی: تراکنشی ثبت نشده است.";
@@ -120,9 +385,9 @@ async function getAccountLiveBalanceText(accId) {
   let currs = {};
   if (txs) {
     txs.forEach(t => {
-      let c = (t.Currency || t.currency || 'USD').toUpperCase();
-      let d = t.Direction || t.direction || '';
-      let a = parseFloat(t.Amount || t.amount) || 0;
+      let c = formatCurrencyCode(getVal(t, ['Currency', 'currency']));
+      let d = getVal(t, ['Direction', 'direction']);
+      let a = parseFloat(getVal(t, ['Amount', 'amount'])) || 0;
       if (!currs[c]) currs[c] = { credit: 0, debit: 0 };
       if (d.includes('بستانکار')) currs[c].credit += a;
       if (d.includes('بدهکار')) currs[c].debit += a;
@@ -139,122 +404,108 @@ async function getAccountLiveBalanceText(accId) {
   return textParts.join('\n\n') || 'تراکنشی برای این حساب ثبت نشده است.';
 }
 
-/**
- * 🧠 موتور پیشرفته تحلیل متن (Smart NLP Parser - نسخه ۸)
- */
-function parseTransactionText(rawText, brokerAddresses = []) {
-  const text = toEnglishDigits(rawText);
-
-  // ۱. تعیین جهت صرافی
-  let direction = 'بستانکار';
-  const firstPersonVerbs = ['کردم', 'اجرا کردم', 'پرداخت کردم', 'رساندم', 'دادم'];
-  if (firstPersonVerbs.some(v => text.includes(v))) {
-    direction = 'بدهکار';
-  }
-
-  // ۲. استخراج واحد ارز صرافی
-  let currency = 'USD';
-  const mainCurrMatch = text.match(/(دلار|دینار|تومان|افغانی|USD|IQD|AFN|\$)/i);
-  if (mainCurrMatch && mainCurrMatch[1]) {
-    const cStr = mainCurrMatch[1].toLowerCase();
-    if (cStr.includes('دینار') || cStr === 'iqd') currency = 'IQD';
-    else if (cStr.includes('تومان') || cStr === 'تمن') currency = 'تومان';
-    else if (cStr.includes('افغانی') || cStr === 'afn') currency = 'AFN';
-    else currency = 'USD';
-  } else {
-    if (/تومان|تمن/i.test(text)) currency = 'تومان';
-    else if (/افغانی|AFN/i.test(text)) currency = 'AFN';
-    else if (/دینار|IQD/i.test(text)) currency = 'IQD';
-    else if (/دلار|USD|\$/i.test(text)) currency = 'USD';
-  }
-
-  // ۳. استخراج مبالغ و محاسبه تقسیم نرخ
-  let amountInitial = 0;
-  let exchangeRate = null;
-  let amountFinal = 0;
-
-  const numbers = text.match(/\d+(\.\d+)?/g);
-  if (numbers && numbers.length > 0) {
-    amountInitial = parseFloat(numbers[0]);
-    amountFinal = amountInitial;
-
-    if (text.includes('÷') || text.includes('/') || text.includes('تقسیم')) {
-      const rateMatch = text.match(/(?:÷|\/|تقسیم)[^\d]*(\d+(\.\d+)?)/);
-      if (rateMatch && rateMatch[1]) {
-        exchangeRate = parseFloat(rateMatch[1]);
-        if (exchangeRate > 0) {
-          amountFinal = parseFloat((amountInitial / exchangeRate).toFixed(2));
-        }
-      }
-    }
-  }
-
-  // ۴. تطبیق جزئی آدرس (مچینگ تکه‌ای از آدرس موجود در لیست صرافی)
-  let address = '-';
-  let parsedAddrs = [];
+async function calculateSystemGlobalBalanceSummary() {
   try {
-    parsedAddrs = typeof brokerAddresses === 'string' ? JSON.parse(brokerAddresses) : (brokerAddresses || []);
-  } catch (e) { parsedAddrs = []; }
+    const accounts = await fetchAllAccountsFromDb();
+    const { data: transactions } = await supabase.from('transactions').select('*');
+    if (!accounts || !transactions) return 'اطلاعاتی یافت نشد.';
 
-  // بررسی اینکه آیا بخشی از آدرس‌های دیتابیس در متن وجود دارد یا برعکس
-  for (let addr of parsedAddrs) {
-    if (addr && text.includes(addr)) {
-      address = addr;
-      break;
-    }
-  }
+    let totalsByCurrency = {};
+    accounts.forEach(acc => {
+      let accId = String(getVal(acc, ['AccountID', 'accountid']) || '');
+      if (!accId) return;
+      let accTxs = transactions.filter(t => String(getVal(t, ['AccountID', 'accountid'])) === accId);
+      let accCurrencies = {};
 
-  // اگر پیدا نشد، بررسی کلمه‌ی آدرس در متن
-  if (address === '-') {
-    const addrLineMatch = text.match(/آدرس\s+([^\n]+)/);
-    if (addrLineMatch && addrLineMatch[1]) {
-      let fullFoundAddr = addrLineMatch[1].trim();
-      // بررسی تکه‌تکه با آدرس‌های صرافی
-      let matchedPart = parsedAddrs.find(a => fullFoundAddr.includes(a) || a.includes(fullFoundAddr));
-      address = matchedPart ? matchedPart : fullFoundAddr;
-    } else {
-      const cities = ['کابل', 'تهران', 'هرات', 'مزار', 'قندهار', 'دبی', 'مشهد', 'اصفهان'];
-      for (let city of cities) {
-        if (text.includes(city)) {
-          address = city;
-          break;
+      accTxs.forEach(tx => {
+        let curr = formatCurrencyCode(getVal(tx, ['Currency', 'currency']));
+        let dir = getVal(tx, ['Direction', 'direction']);
+        let amt = parseFloat(getVal(tx, ['Amount', 'amount'])) || 0;
+
+        if (!accCurrencies[curr]) accCurrencies[curr] = 0;
+        if (dir.includes("بستانکار")) accCurrencies[curr] += amt;
+        if (dir.includes("بدهکار")) accCurrencies[curr] -= amt;
+      });
+
+      for (let curr in accCurrencies) {
+        let net = accCurrencies[curr];
+        if (net !== 0) {
+          if (!totalsByCurrency[curr]) totalsByCurrency[curr] = { credSum: 0, debSum: 0 };
+          if (net > 0) totalsByCurrency[curr].debSum += net;
+          else totalsByCurrency[curr].credSum += Math.abs(net);
         }
       }
+    });
+
+    let parts = [];
+    for (let curr in totalsByCurrency) {
+      let cred = totalsByCurrency[curr].credSum;
+      let deb = totalsByCurrency[curr].debSum;
+      let finalNet = cred - deb;
+      let status = finalNet > 0 ? `بستانکار: ${formatMoney(Math.abs(finalNet))} ${curr}` : `bدهکار: ${formatMoney(Math.abs(finalNet))} ${curr}`;
+      parts.push(`🔹 ${curr} ➔ بستانکاری: ${formatMoney(cred)} | بدهکاری: ${formatMoney(deb)} | *مانده: ${status}*`);
     }
+    return parts.join('\n') || 'بدون مانده فعال';
+  } catch (e) {
+    return 'خطا در محاسبه بیلان کل سیستم.';
   }
-
-  // ۵. استخراج متن دقیق شرح (فقط متن بعد از کلمه‌ی "توضیح")
-  let description = rawText.trim();
-  const descMatch = rawText.match(/توضیح[:\s]*(.+)/s);
-  if (descMatch && descMatch[1]) {
-    // جدا کردن بخش اتصال به مشتری از توضیحات
-    let cleanDesc = descMatch[1].split(/اتصال\s*به\s*حساب/i)[0];
-    description = cleanDesc.trim();
-  }
-
-  let operationType = text.includes('حواله') ? 'حواله' : 'معامله';
-
-  return {
-    direction,
-    currency,
-    amountInitial,
-    exchangeRate,
-    amountFinal,
-    address,
-    operationType,
-    description
-  };
 }
 
-module.exports = async (req, res) => {
+// ==============================================================================
+// 6. فرم فرم‌محور و مدیریت مرحله‌ای (Form-Based State Machine & Menus)
+// ==============================================================================
+
+function buildMainMenuKeyboard() {
+  return [
+    [{ text: '👥 حساب مشتریان', callback_data: 'NAV_CUSTOMERS' }, { text: '🏛️ انتخاب صرافی فعال', callback_data: 'NAV_BROKERS' }],
+    [{ text: '📝 ثبت معامله سریع صرافی', callback_data: 'FORM_NEW_BROKER_TX' }],
+    [{ text: '📊 گزارش عمودی مانده‌ها', callback_data: 'BROKER_VIEW_BAL' }, { text: '📈 آمار کلی سیستم', callback_data: 'NAV_REPORTS' }]
+  ];
+}
+
+function buildBrokerActionMenu(brokerName) {
+  return [
+    [{ text: '📝 ثبت معامله فرمی جدید', callback_data: 'FORM_NEW_BROKER_TX' }],
+    [{ text: '📂 مدیریت آدرس‌های صرافی', callback_data: 'MANAGE_ADDRESSES' }],
+    [{ text: '📊 دیدن مانده صرافی', callback_data: 'BROKER_VIEW_BAL' }],
+    [{ text: '🏠 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]
+  ];
+}
+
+function buildDirectionSelectionKeyboard(prefix = 'SET_DIR') {
+  return [
+    [
+      { text: '🟢 بستانکار (ورودی)', callback_data: `${prefix}:بستانکار` },
+      { text: '🔴 بدهکار (خروجی)', callback_data: `${prefix}:بدهکار` }
+    ]
+  ];
+}
+
+function buildCurrencySelectionKeyboard(prefix = 'SET_CURR') {
+  return [
+    [
+      { text: '💲 USD', callback_data: `${prefix}:USD` },
+      { text: '؋ AFN', callback_data: `${prefix}:AFN` },
+      { text: '🇮🇶 IQD', callback_data: `${prefix}:IQD` },
+      { text: '🇮🇷 تومان', callback_data: `${prefix}:تومان` }
+    ]
+  ];
+}
+
+// ==============================================================================
+// 7. موتور پردازش درخواست‌ها و سرور اصلی (Main Handler & Router Engine)
+// ==============================================================================
+
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).send('Bot Server is Running & Ready');
+    return res.status(200).send('Enterprise Bot Server - Full Operations Active');
   }
 
   try {
     const update = req.body;
     if (!update) return res.status(200).json({ ok: true });
 
+    // A. مدیریت پاسخ‌های دکمه‌های شیشه‌ای (Callback Query Router)
     if (update.callback_query) {
       const query = update.callback_query;
       const userId = query.from.id;
@@ -263,185 +514,221 @@ module.exports = async (req, res) => {
       const data = query.data;
 
       if (!(await isAuthorizedAdmin(userId))) {
-        await answerCallbackQuery(query.id, '❌ دسترسی غیرمجاز', true);
+        await answerCallbackQuery(query.id, '❌ دسترسی غیرمجاز به سامانه', true);
         return res.status(200).json({ ok: true });
       }
 
+      // ۱. بازگشت به منوی اصلی
       if (data === 'NAV_MAIN') {
         delete userStates[userId];
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, '✨ *سامانه مدیریت حساب‌کتاب و صرافی کریمی*\nلطفاً بخش مورد نظر را انتخاب کنید:', [
-          [{ text: '👥 حساب مشتریان', callback_data: 'NAV_CUSTOMERS' }, { text: '🏛️ حساب صرافی‌ها', callback_data: 'NAV_BROKERS' }],
-          [{ text: '📈 گزارشات کلی', callback_data: 'NAV_REPORTS' }]
-        ]);
+        await editTelegramMsg(chatId, msgId, '✨ *سامانه مدیریت جامع حساب‌کتاب و صرافی کریمی*\nلطفاً بخش مورد نظر را انتخاب کنید:', buildMainMenuKeyboard());
       } 
+
+      // ۲. منوی حساب مشتریان
       else if (data === 'NAV_CUSTOMERS') {
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, '👥 *بخش حساب مشتریان*\n\nبرای جستجو نام یا شماره مشتری را ارسال کنید:', [
+        await editTelegramMsg(chatId, msgId, '👥 *بخش حساب مشتریان*\n\nبرای جستجوی حساب، نام یا کد مشتری را ارسال کنید:', [
           [{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'NAV_MAIN' }]
         ]);
       } 
+
+      // ۳. انتخاب مشتری و دیدن مشخصات
       else if (data.startsWith('SELECT_CUST:')) {
         const accId = data.split(':')[1];
-        const { data: acc } = await supabase.from('accounts').select('*').eq('AccountID', accId).single();
+        const acc = await getAccountById(accId);
         if (!acc) return res.status(200).json({ ok: true });
-        userStates[userId] = { accId, accName: acc.Name || acc.name, activeBrokerId: userStates[userId]?.activeBrokerId };
+
+        userStates[userId] = { accId, accName: getVal(acc, ['Name', 'name']), activeBrokerId: userStates[userId]?.activeBrokerId };
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, `👤 *پنل مشتری:* *${acc.Name || acc.name}*\n🆔 کد: \`${toEnglishDigits(accId)}\`\n📞 تلفن: \`${acc.Phone || acc.phone || '-'}\``, [
-          [{ text: '📊 دیدن مانده‌ها', callback_data: 'CUST_VIEW_BAL' }],
+        await editTelegramMsg(chatId, msgId, `👤 *پنل مدیریت مشتری:* *${getVal(acc, ['Name', 'name'])}*\n🆔 کُد حساب: \`${toEnglishDigits(accId)}\`\n📞 شماره تماس: \`${getVal(acc, ['Phone', 'phone']) || '-'}\``, [
+          [{ text: '📊 مشاهده مانده حساب', callback_data: 'CUST_VIEW_BAL' }],
           [{ text: '🔙 منوی اصلی', callback_data: 'NAV_MAIN' }]
         ]);
       } 
+
+      // ۴. مانده زنده حساب مشتری
       else if (data === 'CUST_VIEW_BAL') {
         const st = userStates[userId];
         if (!st || !st.accId) return res.status(200).json({ ok: true });
-        let balText = `📊 *صورت‌حساب:* *${st.accName}*\n────────────────────────\n` + await getAccountLiveBalanceText(st.accId);
+        let balText = `📊 *صورت‌حساب تفکیکی:* *${st.accName}*\n────────────────────────\n` + await getAccountLiveBalanceText(st.accId);
         await answerCallbackQuery(query.id);
         await editTelegramMsg(chatId, msgId, balText, [[{ text: '🔙 بازگشت', callback_data: `SELECT_CUST:${st.accId}` }]]);
       } 
+
+      // ۵. لیست صرافی‌های ثبت‌شده
       else if (data === 'NAV_BROKERS') {
-        const { data: brokers } = await supabase.from('brokers').select('*');
+        const brokers = await fetchAllBrokersFromDb();
         let brokerBtns = (brokers || []).map(b => [{ text: `🏛️ ${b.name} (${b.city || 'بدون شهر'})`, callback_data: `SELECT_BROKER:${b.broker_id}` }]);
         brokerBtns.push([{ text: '🔙 منوی اصلی', callback_data: 'NAV_MAIN' }]);
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, '🏛️ *انتخاب صرافی فعال:*', brokerBtns);
+        await editTelegramMsg(chatId, msgId, '🏛️ *انتخاب صرافی یا کارگزار فعال:*', brokerBtns);
       } 
+
+      // ۶. انتخاب صرافی فعال
       else if (data.startsWith('SELECT_BROKER:')) {
         const brokerId = data.split(':')[1];
-        const { data: broker } = await supabase.from('brokers').select('*').eq('broker_id', brokerId).single();
+        const broker = await getBrokerById(brokerId);
         if (!broker) return res.status(200).json({ ok: true });
+
         userStates[userId] = { activeBrokerId: brokerId, brokerName: broker.name, brokerAddresses: broker.addresses };
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, `✅ *صرافی فعال انتخاب شد:* *${broker.name}*\n\nاکنون هر پیام متنی بفرستید، مستقیماً برای این صرافی پردازش و ثبت می‌شود.`, [
-          [{ text: '📊 دیدن مانده صرافی', callback_data: 'BROKER_VIEW_BAL' }],
-          [{ text: '🏠 منوی اصلی', callback_data: 'NAV_MAIN' }]
-        ]);
+        await editTelegramMsg(chatId, msgId, `✅ *صرافی فعال انتخاب شد:* *${broker.name}*\n\nیک گزینه را انتخاب کنید:`, buildBrokerActionMenu(broker.name));
       } 
+
+      // ۷. دیدن مانده عمودی صرافی
       else if (data === 'BROKER_VIEW_BAL') {
         const st = userStates[userId];
-        if (!st || !st.activeBrokerId) return res.status(200).json({ ok: true });
+        if (!st || !st.activeBrokerId) {
+          await answerCallbackQuery(query.id, '⚠️ ابتدا صرافی را انتخاب کنید', true);
+          return res.status(200).json({ ok: true });
+        }
         let rep = await getBrokerVerticalBalanceText(st.activeBrokerId);
         await answerCallbackQuery(query.id);
         await editTelegramMsg(chatId, msgId, rep, [[{ text: '🏠 منوی اصلی', callback_data: 'NAV_MAIN' }]]);
       }
 
+      // ۸. شروع ثبت معامله فرمی صرافی
+      else if (data === 'FORM_NEW_BROKER_TX') {
+        const st = userStates[userId] || {};
+        if (!st.activeBrokerId) {
+          await answerCallbackQuery(query.id, '⚠️ لطفاً ابتدا یک صرافی انتخاب کنید', true);
+          return res.status(200).json({ ok: true });
+        }
+
+        userStates[userId] = { ...st, step: 'WAIT_AMOUNT', formData: {} };
+        await answerCallbackQuery(query.id);
+        await editTelegramMsg(chatId, msgId, `📝 *ثبت معامله جدید صرافی (${st.brokerName})*\n\n۱. لطفاً *مبلغ اصلی معامله* را وارد کنید:\n(مثلاً: 20000)`, [
+          [{ text: '❌ انصراف', callback_data: 'NAV_MAIN' }]
+        ]);
+      }
+
+      // ۹. انتخاب جهت معامله در فرم
+      else if (data.startsWith('SET_DIR:')) {
+        const dir = data.split(':')[1];
+        const st = userStates[userId];
+        if (st && st.formData) {
+          st.formData.direction = dir;
+          st.step = 'WAIT_CURRENCY';
+          await answerCallbackQuery(query.id);
+          await editTelegramMsg(chatId, msgId, `✅ جهت انتخاب شد: *${dir}*\n\n۳. لطفاً *واحد ارز* را انتخاب کنید:`, buildCurrencySelectionKeyboard());
+        }
+      }
+
+      // ۱۰. انتخاب ارز معامله در فرم
+      else if (data.startsWith('SET_CURR:')) {
+        const curr = data.split(':')[1];
+        const st = userStates[userId];
+        if (st && st.formData) {
+          st.formData.currency = curr;
+          st.step = 'WAIT_RATE';
+          await answerCallbackQuery(query.id);
+          await editTelegramMsg(chatId, msgId, `✅ ارز انتخاب شد: *${curr}*\n\n۴. اگر معامله دارای نرخ نرخ تبدیل/تقسیم است، نرخ را بفرستید در غیر این صورت عدد 1 را ارسال کنید:\n(مثلاً: 278)`, [
+            [{ text: 'بدون نرخ (1)', callback_data: 'SET_RATE_ONE' }]
+          ]);
+        }
+      }
+
+      else if (data === 'SET_RATE_ONE') {
+        const st = userStates[userId];
+        if (st && st.formData) {
+          st.formData.exchangeRate = 1;
+          st.formData.amountFinal = st.formData.amountInitial;
+          st.step = 'WAIT_DESC';
+          await answerCallbackQuery(query.id);
+          await editTelegramMsg(chatId, msgId, `✅ نرخ ثبت شد: *1*\n\n۵. لطفاً *شرح / توضیحات معامله* را بنویسید:`);
+        }
+      }
+
+      // ۱۱. گزارش جامع سیستم
+      else if (data === 'NAV_REPORTS') {
+        await answerCallbackQuery(query.id);
+        let globalSummary = await calculateSystemGlobalBalanceSummary();
+        await editTelegramMsg(chatId, msgId, `📈 *گزارش کلی و بیلان جامع سیستم*\n\n${globalSummary}`, [
+          [{ text: '🔙 منوی اصلی', callback_data: 'NAV_MAIN' }]
+        ]);
+      }
+
       return res.status(200).json({ ok: true });
     }
 
+    // B. مدیریت پیام‌های متنی ارسالی (Text Messages Router)
     if (update.message && update.message.text) {
       const chatId = update.message.chat.id;
       const userId = update.message.from.id;
-      const text = update.message.text.trim();
+      const text = sanitizeText(update.message.text);
 
       if (!(await isAuthorizedAdmin(userId))) {
-        await sendTelegramMsg(chatId, '⛔ دسترسی غیرمجاز.');
+        await sendTelegramMsg(chatId, '⛔ دسترسی غیرمجاز به ربات.');
         return res.status(200).json({ ok: true });
       }
 
       if (text === '/start') {
         delete userStates[userId];
-        await sendTelegramMsg(chatId, '✨ *سامانه هوشمند صرافی و امانت‌داری کریمی*\nلطفاً صرافی مورد نظر را انتخاب کنید:', [
-          [{ text: '👥 حساب مشتریان', callback_data: 'NAV_CUSTOMERS' }, { text: '🏛️ انتخاب صرافی', callback_data: 'NAV_BROKERS' }]
+        await sendTelegramMsg(chatId, '✨ *سامانه هوشمند صرافی و امانت‌داری کریمی*\nلطفاً بخش مورد نظر را از دکمه‌های زیر انتخاب کنید:', buildMainMenuKeyboard());
+        return res.status(200).json({ ok: true });
+      }
+
+      let st = userStates[userId];
+
+      // فرم مرحله‌ای ثبت معامله صرافی
+      if (st && st.step) {
+        if (st.step === 'WAIT_AMOUNT') {
+          let amt = parseFloat(toEnglishDigits(text));
+          if (isNaN(amt) || amt <= 0) {
+            await sendTelegramMsg(chatId, '⚠️ لطفاً یک مبلغ عددی معتبر وارد کنید:');
+            return res.status(200).json({ ok: true });
+          }
+          st.formData.amountInitial = amt;
+          st.step = 'WAIT_DIR';
+          await sendTelegramMsg(chatId, `💰 مبلغ اولیه: *${formatMoney(amt)}*\n\n۲. جهت معامله را انتخاب کنید:`, buildDirectionSelectionKeyboard());
+          return res.status(200).json({ ok: true });
+        }
+
+        if (st.step === 'WAIT_RATE') {
+          let rate = parseFloat(toEnglishDigits(text));
+          if (isNaN(rate) || rate <= 0) rate = 1;
+          st.formData.exchangeRate = rate;
+          st.formData.amountFinal = calculateExchangeRate(st.formData.amountInitial, rate, 'divide');
+          st.step = 'WAIT_DESC';
+          await sendTelegramMsg(chatId, `✅ نرخ ثبت شد: *${rate}*\n💰 مبلغ نهایی: *${formatMoney(st.formData.amountFinal)} ${st.formData.currency}*\n\n۵. لطفاً *شرح / توضیحات معامله* را ارسال کنید:`);
+          return res.status(200).json({ ok: true });
+        }
+
+        if (st.step === 'WAIT_DESC') {
+          st.formData.description = text;
+          st.step = 'WAIT_ADDR';
+
+          let broker = await getBrokerById(st.activeBrokerId);
+          let addresses = parseBrokerAddressArray(broker?.addresses);
+
+          let addrBtns = addresses.map(a => [{ text: `📍 ${a}`, callback_data: `SET_ADDR:${a}` }]);
+          addrBtns.push([{ text: 'بدون آدرس (-)', callback_data: 'SET_ADDR:-' }]);
+
+          await sendTelegramMsg(chatId, `✅ شرح ثبت شد.\n\n۶. لطفاً آدرس مقصد را انتخاب کنید یا تایپ نمایید:`, { inline_keyboard: addrBtns });
+          return res.status(200).json({ ok: true });
+        }
+      }
+
+      // جستجوی مشتری بر اساس نام یا شماره
+      const { data: foundAccs } = await supabase.from('accounts').select('*').ilike('Name', `%${text}%`);
+      if (foundAccs && foundAccs.length > 0) {
+        let acc = foundAccs[0];
+        let accId = getVal(acc, ['AccountID', 'accountid']);
+        let accName = getVal(acc, ['Name', 'name']);
+        let liveBal = await getAccountLiveBalanceText(accId);
+        let respMsg = `👤 *مشتری یافت شد:* *${accName}*\n📞 تلفن: \`${getVal(acc, ['Phone', 'phone']) || '-'}\`\n\n${liveBal}`;
+        await sendTelegramMsg(chatId, respMsg, [
+          [{ text: '🔍 مشاهده جزئیات بیشتر', callback_data: `SELECT_CUST:${accId}` }],
+          [{ text: '🔙 منوی اصلی', callback_data: 'NAV_MAIN' }]
         ]);
         return res.status(200).json({ ok: true });
       }
 
-      let st = userStates[userId] || {};
-
-      let currentBrokerAddrs = st.brokerAddresses || [];
-      if (st.activeBrokerId && (!currentBrokerAddrs || currentBrokerAddrs.length === 0)) {
-        const { data: brkData } = await supabase.from('brokers').select('addresses').eq('broker_id', st.activeBrokerId).single();
-        if (brkData) currentBrokerAddrs = brkData.addresses;
-      }
-
-      const parsedData = parseTransactionText(text, currentBrokerAddrs);
-
-      if (!parsedData.amountInitial || parsedData.amountInitial <= 0) {
-        await sendTelegramMsg(chatId, '⚠️ مبلغی در متن پیام شما یافت نشد.');
-        return res.status(200).json({ ok: true });
-      }
-
-      // ۱. ثبت در صرافی
-      let brokerTxId = "BTX-" + Math.floor(10000000 + Math.random() * 90000000);
-      let txDate = new Date().toISOString().split('T')[0];
-
-      if (st.activeBrokerId) {
-        await supabase.from('broker_transactions').insert([{
-          broker_tx_id: brokerTxId,
-          broker_id: st.activeBrokerId,
-          date: txDate,
-          operation_type: parsedData.operationType,
-          direction: parsedData.direction,
-          currency: parsedData.currency,
-          amount_initial: parsedData.amountInitial,
-          exchange_rate: parsedData.exchangeRate,
-          amount_final: parsedData.amountFinal,
-          description: parsedData.description,
-          address_dashboard: parsedData.address
-        }]);
-      }
-
-      // ۲. اتصال هوشمند به مشتری و تعیین دقیق جهت "برداشت" به عنوان بدهکار (-)
-      const { data: accounts } = await supabase.from('accounts').select('*');
-      let matchedCustomer = null;
-      if (accounts) {
-        matchedCustomer = accounts.find(a => text.includes(a.Name || a.name));
-      }
-
-      let customerReportMsg = "";
-      if (matchedCustomer) {
-        let custAmount = parsedData.amountFinal;
-        let custCurrency = parsedData.currency;
-        let custDirection = parsedData.direction; // پیش‌فرض
-
-        // بررسی کلمه "برداشت" در خط اتصال برای تعیین جهت بدهکار (-)
-        if (/برداشت/i.test(text)) {
-          custDirection = 'بدهکار';
-        }
-
-        const custMatch = text.match(/(?:اتصال\s*(?:به)?\s*حساب[^0-9]*)?([\d,]+(?:\.\d+)?)\s*(هزار)?\s*(دینار|دلار|تومان|افغانی|IQD|USD|AFN)/i);
-        if (custMatch && custMatch[1]) {
-          let rawNum = parseFloat(custMatch[1].replace(/,/g, ''));
-          if (custMatch[2]) rawNum = rawNum * 1000;
-          custAmount = rawNum;
-
-          const cStr = custMatch[3].toLowerCase();
-          if (cStr.includes('دینار') || cStr === 'iqd') custCurrency = 'IQD';
-          else if (cStr.includes('تومان')) custCurrency = 'تومان';
-          else if (cStr.includes('افغانی')) custCurrency = 'AFN';
-          else custCurrency = 'USD';
-        }
-
-        const transId = "TX-" + Math.floor(10000000 + Math.random() * 90000000);
-        await supabase.from('transactions').insert([{
-          TransID: transId,
-          AccountID: matchedCustomer.AccountID || matchedCustomer.accountid,
-          Direction: custDirection,
-          Amount: custAmount,
-          Currency: custCurrency,
-          OperationType: parsedData.operationType,
-          Description: parsedData.description,
-          Date: new Date().toISOString()
-        }]);
-        customerReportMsg = `\n👤 *اتصال به مشتری:* ${matchedCustomer.Name || matchedCustomer.name} (${formatMoney(custAmount)} ${custCurrency} - ${custDirection} ثبت شد)`;
-      }
-
-      let summaryMsg = `✅ *تراکنش با موفقیت پردازش و ثبت گردید.*\n\n` +
-        `🔄 *جهت:* ${parsedData.direction}\n` +
-        `💰 *مبلغ نهایی:* ${formatMoney(parsedData.amountFinal)} ${parsedData.currency}\n` +
-        `📍 *آدرس مقصد:* ${parsedData.address}\n` +
-        `📝 *شرح:* _${parsedData.description}_` +
-        customerReportMsg;
-
-      if (st.activeBrokerId) {
-        let verticalRep = await getBrokerVerticalBalanceText(st.activeBrokerId);
-        summaryMsg += `\n${verticalRep}`;
-      }
-
-      await sendTelegramMsg(chatId, summaryMsg);
+      await sendTelegramMsg(chatId, 'ℹ️ دستور نامعتبر. برای شروع و دسترسی به منوی اصلی، لطفاً /start را ارسال کنید.');
     }
   } catch (err) {
-    console.error('Critical Error:', err);
+    console.error('Critical Enterprise Server Architecture Error:', err);
   }
 
   return res.status(200).json({ ok: true });
