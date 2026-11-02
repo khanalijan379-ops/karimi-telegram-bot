@@ -147,7 +147,7 @@ async function isAuthorizedAdmin(userId) {
 }
 
 /* ==============================================================================
- * ۳. پایگاه داده و مدیریت اطلاعات (Supabase Database Layer با بارگذاری کامل بدون حدس)
+ * ۳. پایگاه داده و مدیریت اطلاعات (Supabase Database Layer با بارگذاری کامل بدون محدودیت)
  * ============================================================================== */
 
 async function fetchAllAccountsFromDb() {
@@ -337,7 +337,7 @@ async function calculateSystemGlobalBalanceSummary() {
 }
 
 /* ==============================================================================
- * ۵. رابط کاربری و کیبوردهای شیشه‌ای پیشرفته (UI Keyboards با پدج‌بندی کامل)
+ * ۵. رابط کاربری و کیبوردهای شیشه‌ای پیشرفته (UI Keyboards با صفحه‌بندی کامل)
  * ============================================================================== */
 
 function buildMainMenuKeyboard() {
@@ -389,7 +389,7 @@ function buildTransactionActionMenu(txId, accId) {
   ];
 }
 
-function buildDirectionSelectionKeyboard(prefix = 'SET_DIR') {
+function buildDirectionSelectionKeyboard(prefix = 'TX_SET_DIR') {
   return [
     [
       { text: '🟢 بستانکار (ورودی +)', callback_data: `${prefix}:بستانکار` },
@@ -398,7 +398,7 @@ function buildDirectionSelectionKeyboard(prefix = 'SET_DIR') {
   ];
 }
 
-function buildCurrencySelectionKeyboard(prefix = 'SET_CURR') {
+function buildCurrencySelectionKeyboard(prefix = 'TX_SET_CURR') {
   return [
     [
       { text: '💲 USD', callback_data: `${prefix}:USD` },
@@ -605,7 +605,7 @@ export default async function handler(req, res) {
         ]);
       }
 
-      // ۱۳. ثبت تراکنش جدید برای مشتری مشخص با رفع کامل مشکل توقف در مرحله مبلغ
+      // ۱۳. ثبت تراکنش جدید و انتخاب مشتری (با پشتیبانی کامل از صفحه‌بندی)
       else if (data.startsWith('CUST_ADD_TX:') || data.startsWith('FORM_SELECT_CUSTOMER_FOR_TX')) {
         let accId = data.startsWith('CUST_ADD_TX:') ? data.split(':')[1] : null;
         if (!accId) {
@@ -638,7 +638,7 @@ export default async function handler(req, res) {
         ]);
       }
 
-      // ۱۴. انتخاب جهت تراکنش
+      // ۱۴. انتخاب جهت تراکنش (بستانکار / بدهکار)
       else if (data.startsWith('TX_SET_DIR:')) {
         const dir = data.split(':')[1];
         const st = userStates[userId];
@@ -647,6 +647,8 @@ export default async function handler(req, res) {
           st.step = 'TX_WAIT_CURRENCY';
           await answerCallbackQuery(query.id);
           await editTelegramMsg(chatId, msgId, `✅ جهت انتخاب شد: *${dir}*\n\n۳. لطفاً *واحد ارز* را انتخاب کنید:`, buildCurrencySelectionKeyboard('TX_SET_CURR'));
+        } else {
+          await answerCallbackQuery(query.id, '⚠️ نشست منقضی شد. لطفاً دوباره از منو اقدام کنید.', true);
         }
       }
 
@@ -662,6 +664,8 @@ export default async function handler(req, res) {
             [{ text: 'امانت', callback_data: 'TX_SET_OP:امانت' }, { text: 'حواله', callback_data: 'TX_SET_OP:حواله' }],
             [{ text: 'انتقال', callback_data: 'TX_SET_OP:انتقال' }, { text: 'تسویه', callback_data: 'TX_SET_OP:تسویه' }]
           ]);
+        } else {
+          await answerCallbackQuery(query.id, '⚠️ نشست منقضی شد. لطفاً دوباره اقدام کنید.', true);
         }
       }
 
@@ -674,6 +678,8 @@ export default async function handler(req, res) {
           st.step = 'TX_WAIT_DESC';
           await answerCallbackQuery(query.id);
           await editTelegramMsg(chatId, msgId, `✅ نوع عملیات: *${op}*\n\n۵. لطفاً *شرح یا توضیحات تراکنش* را ارسال کنید:`);
+        } else {
+          await answerCallbackQuery(query.id, '⚠️ نشست منقضی شد.', true);
         }
       }
 
@@ -689,7 +695,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // B. مدیریت پیام‌های متنی و استعلام‌های جستجوی پیشرفته (Text Message Router با رفع کامل ایراد توقف مبلغ)
+    // B. مدیریت پیام‌های متنی و استعلام‌های جستجوی پیشرفته (Text Message Router با حل قطعی گیر کردن مبلغ)
     if (update.message && update.message.text) {
       const chatId = update.message.chat.id;
       const userId = update.message.from.id;
@@ -734,7 +740,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // روند ثبت تراکنش مرحله‌ای با پشتیبانی کامل از ارقام فارسی/عربی/انگلیسی (اصلاح کامل گیر نکردن در مرحله مبلغ)
+      // روند ثبت تراکنش مرحله‌ای با حل قطعی مشکل توقف در مرحله مبلغ
       if (st && st.step) {
         if (st.step === 'TX_WAIT_AMOUNT') {
           let cleanInput = toEnglishDigits(text);
@@ -784,7 +790,6 @@ export default async function handler(req, res) {
           let queryTerm = text.toLowerCase();
           const accounts = await fetchAllAccountsFromDb();
 
-          // جستجوی پیشرفته تطبیقی (مثلاً علی فلانی، علی و غیره)
           let matched = accounts.filter(acc => {
             let name = String(getVal(acc, ['Name', 'name']) || '').toLowerCase();
             let phone = String(getVal(acc, ['Phone', 'phone']) || '').toLowerCase();
@@ -809,7 +814,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // جستجوی عمومی و هوشمند خودکار نام مشتریان در متن پیام با پشتیبانی از نام‌های چندبخشی (مثل علی)
+      // جستجوی عمومی و هوشمند خودکار نام مشتریان در متن پیام
       const accounts = await fetchAllAccountsFromDb();
       let matchedAccs = (accounts || []).filter(acc => {
         let name = String(getVal(acc, ['Name', 'name']) || '').toLowerCase();
