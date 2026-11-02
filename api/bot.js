@@ -1,15 +1,12 @@
 /**
  * ==============================================================================
- * 🏛️ سامانه جامع، کامل و پیشرفته مدیریت صرافی و امانت‌داری کریمی
- * نسخه کامل سرور ربات تلگرام - Enterprise Full Architecture (1200 Lines Scope)
+ * 🏛️ سامانه اختصاصی، یکپارچه و پیشرفته مدیریت امانت‌داری و صرافی کریمی
+ * نسخه نهایی و اختصاصی سرور ربات تلگرام (Enterprise Custom Single Architecture)
  * ==============================================================================
  */
 
 import { createClient } from '@supabase/supabase-js';
 
-// ==============================================================================
-// ۱. تنظیمات اتصال دیتابیس Supabase و توکن‌های شبکه تلگرام
-// ==============================================================================
 const SUPABASE_URL = "https://zpehwkvtbiceurfpafiw.supabase.co";
 const SUPABASE_KEY = "sb_publishable__ZK44kWZES328UQJ7P_zzw_tZoc465D";
 const TELEGRAM_TOKEN = "8896092487:AAGc5sE1n8iSXwxNZ8HOdnRhUpsPod6Vx5U";
@@ -18,7 +15,6 @@ const MASTER_ADMIN_ID = "802655440";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
-// حافظه موقت نشست‌ها و وضعیت‌های پردازش درخواست‌ها
 const userStates = {};
 const systemCache = {
   accounts: [],
@@ -28,9 +24,9 @@ const systemCache = {
   lastSyncTimestamp: null
 };
 
-// ==============================================================================
-// ۲. توابع استاندارد پردازش ارقام، تبدیل متون و فرمت‌دهی مالی
-// ==============================================================================
+/* ==============================================================================
+ * ماژول ۱: توابع کمکی، تبدیل ارقام و پردازش رشته‌ها (Utility Engine & Helpers)
+ * ============================================================================== */
 
 function toEnglishDigits(str) {
   if (str === null || str === undefined) return '';
@@ -168,9 +164,9 @@ function parseBrokerAddressArray(rawAddr) {
   }
 }
 
-// ==============================================================================
-// ۳. ماژول ارتباط مستقیم با ربات تلگرام (Telegram Webhook Communication)
-// ==============================================================================
+/* ==============================================================================
+ * ماژول ۲: ارتباطات پیشرفته تلگرام (Telegram API Communication Engine)
+ * ============================================================================== */
 
 async function sendTelegramMsg(chatId, text, inlineKeyboard = null) {
   const body = { chat_id: chatId, text: text, parse_mode: 'Markdown' };
@@ -251,9 +247,9 @@ async function isAuthorizedAdmin(userId) {
   return false;
 }
 
-// ==============================================================================
-// ۴. ماژول مدیریت جدول‌ها و داده‌های Supabase Database Engine
-// ==============================================================================
+/* ==============================================================================
+ * ماژول ۳: ارتباط با پایگاه داده Supabase (Database & Sync Engine)
+ * ============================================================================== */
 
 async function fetchAllAccountsFromDb() {
   try {
@@ -345,9 +341,9 @@ async function updateBrokerAddressesInDb(brokerId, addressesArray) {
   }
 }
 
-// ==============================================================================
-// ۵. موتور محاسبه بیلان، آمار زنده و گزارش‌های تفکیکی (Financial Calculation)
-// ==============================================================================
+/* ==============================================================================
+ * ماژول ۴: محاسبات مالی، گزارشات عمودی و بیلان (Reporting & Accounting Engine)
+ * ============================================================================== */
 
 async function getBrokerVerticalBalanceText(brokerId) {
   const { data: txs } = await supabase.from('broker_transactions').select('*').eq('broker_id', brokerId);
@@ -451,9 +447,9 @@ async function calculateSystemGlobalBalanceSummary() {
   }
 }
 
-// ==============================================================================
-// ۶. منوها، دکمه‌های شیشه‌ای و ساختار کیبوردها (UI Markup Generators)
-// ==============================================================================
+/* ==============================================================================
+ * ماژول ۵: منوها، کیبوردها و رابط کاربری شیشه‌ای (UI Keyboards & Menus)
+ * ============================================================================== */
 
 function buildMainMenuKeyboard() {
   return [
@@ -492,20 +488,20 @@ function buildCurrencySelectionKeyboard(prefix = 'SET_CURR') {
   ];
 }
 
-// ==============================================================================
-// ۷. موتور اصلی پردازش درخواست‌ها (Server Main Routing Handler)
-// ==============================================================================
+/* ==============================================================================
+ * ماژول ۶: موتور پردازش و تحلیل مرکزی درخواست‌ها (Enterprise Handler & Router Engine)
+ * ============================================================================== */
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).send('Enterprise Bot Server Architecture Active & Ready');
+    return res.status(200).send('Enterprise Bot Server Active & Ready');
   }
 
   try {
     const update = req.body;
     if (!update) return res.status(200).json({ ok: true });
 
-    // A. مدیریت پاسخ‌های دکمه‌های شیشه‌ای (Callback Query Handler)
+    // A. مدیریت پاسخ‌های دکمه‌های شیشه‌ای (Callback Query Router)
     if (update.callback_query) {
       const query = update.callback_query;
       const userId = query.from.id;
@@ -522,7 +518,7 @@ export default async function handler(req, res) {
       if (data === 'NAV_MAIN') {
         delete userStates[userId];
         await answerCallbackQuery(query.id);
-        await editTelegramMsg(chatId, msgId, '✨ *سامانه مدیریت جامع حساب‌کتاب و صرافی کریمی*\nلطفاً بخش مورد نظر را انتخاب کنید:', buildMainMenuKeyboard());
+        await editTelegramMsg(chatId, msgId, '✨ *سامانه مدیریت جامع حساب‌کتاب و امانت‌داری کریمی*\nلطفاً بخش مورد نظر را انتخاب کنید:', buildMainMenuKeyboard());
       } 
 
       // ۲. منوی حساب مشتریان
@@ -703,7 +699,7 @@ export default async function handler(req, res) {
 
       if (text === '/start') {
         delete userStates[userId];
-        await sendTelegramMsg(chatId, '✨ *سامانه هوشمند صرافی و امانت‌داری کریمی*\nلطفاً بخش مورد نظر را از دکمه‌های زیر انتخاب کنید:', buildMainMenuKeyboard());
+        await sendTelegramMsg(chatId, '✨ *سامانه هوشمند مدیریت امانت‌داری و صرافی کریمی*\nلطفاً بخش مورد نظر را از دکمه‌های زیر انتخاب کنید:', buildMainMenuKeyboard());
         return res.status(200).json({ ok: true });
       }
 
