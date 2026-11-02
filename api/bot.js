@@ -1,7 +1,7 @@
 /**
  * ==============================================================================
  * 🏛️ سامانه جامع و هوشمند ربات تلگرام صرافی و امانت‌داری کریمی
- * نسخه نهایی با اصلاح دقیق محاسبه تقسیم نرخ (Smart NLP Parser - v6)
+ * نسخه نهایی و اصلاح‌شده‌ی تطبیق نرخ و تقسیم (Smart NLP Parser - v7)
  * ==============================================================================
  */
 
@@ -140,20 +140,19 @@ async function getAccountLiveBalanceText(accId) {
 }
 
 /**
- * 🧠 موتور کاملاً پیشرفته تحلیل متن (Smart NLP Parser - v6)
+ * 🧠 موتور تحلیل متن (Smart NLP Parser - نسخه ۷ با پشتیبانی از کلمات واسط نرخ مثل "صرف")
  */
 function parseTransactionText(rawText, brokerAddresses = []) {
   const text = toEnglishDigits(rawText);
 
-  // ۱. تعیین جهت بر اساس قانون فاعل (فعل اول شخص = بدهکار، سوم شخص = بستانکار)
-  let direction = 'بستانکار'; // پیش‌فرض سوم‌شخص (مثل انجام داد)
+  // ۱. تعیین جهت بر اساس قانون فاعل
+  let direction = 'بستانکار'; // پیش‌فرض سوم شخص (مثل انجام داد)
   const firstPersonVerbs = ['کردم', 'اجرا کردم', 'پرداخت کردم', 'رساندم', 'دادم'];
-
   if (firstPersonVerbs.some(v => text.includes(v))) {
     direction = 'بدهکار';
   }
 
-  // ۲. استخراج واحد ارز اصلی از متن (مثل دلار، دینار، تومان، افغانی)
+  // ۲. استخراج واحد ارز اصلی از متن
   let currency = 'USD';
   const mainCurrMatch = text.match(/(دلار|دینار|تومان|افغانی|USD|IQD|AFN|\$)/i);
   if (mainCurrMatch && mainCurrMatch[1]) {
@@ -169,7 +168,7 @@ function parseTransactionText(rawText, brokerAddresses = []) {
     else if (/دلار|USD|\$/i.test(text)) currency = 'USD';
   }
 
-  // ۳. استخراج مبالغ و محاسبه دقیق تقسیم (مثلاً 20000 تقسیم 278)
+  // ۳. استخراج مبالغ و محاسبه‌ی تقسیم با در نظر گرفتن کلمات واسط مثل "صرف"
   let amountInitial = 0;
   let exchangeRate = null;
   let amountFinal = 0;
@@ -179,9 +178,9 @@ function parseTransactionText(rawText, brokerAddresses = []) {
     amountInitial = parseFloat(numbers[0]);
     amountFinal = amountInitial;
 
-    // بررسی وجود عملگر تقسیم یا کلمه تقسیم در متن
+    // اصلاح‌شده: پشتیبانی از کلمات بین کلمه تقسیم و عدد نرخ (مثل "تقسیم صرف 278")
     if (text.includes('÷') || text.includes('/') || text.includes('تقسیم')) {
-      const rateMatch = text.match(/(?:÷|\/|تقسیم)\s*(\d+(\.\d+)?)/);
+      const rateMatch = text.match(/(?:÷|\/|تقسیم)[^\d]*(\d+(\.\d+)?)/);
       if (rateMatch && rateMatch[1]) {
         exchangeRate = parseFloat(rateMatch[1]);
         if (exchangeRate > 0) {
@@ -191,7 +190,7 @@ function parseTransactionText(rawText, brokerAddresses = []) {
     }
   }
 
-  // ۴. تطبیق آدرس مقصد با لیست آدرس‌های صرافی یا کلیدواژه آدرس
+  // ۴. تطبیق آدرس مقصد
   let address = '-';
   let parsedAddrs = [];
   try {
@@ -350,7 +349,7 @@ module.exports = async (req, res) => {
         return res.status(200).json({ ok: true });
       }
 
-      // ۱. ثبت معامله در بخش صرافی با مبلغ نهایی صحیح (تقسیم‌شده)
+      // ۱. ثبت معامله در بخش صرافی با مبلغ نهایی تقسیم‌شده‌ی صحیح
       let brokerTxId = "BTX-" + Math.floor(10000000 + Math.random() * 90000000);
       let txDate = new Date().toISOString().split('T')[0];
 
@@ -370,7 +369,7 @@ module.exports = async (req, res) => {
         }]);
       }
 
-      // ۲. اتصال هوشمند به مشتری و استخراج مبلغ مجزا (مثل ۱۴۰ هزار دینار)
+      // ۲. اتصال هوشمند به مشتری و استخراج مبلغ مجزا
       const { data: accounts } = await supabase.from('accounts').select('*');
       let matchedCustomer = null;
       if (accounts) {
