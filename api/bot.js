@@ -1,7 +1,7 @@
 /**
  * ==============================================================================
  * 🏛️ سامانه جامع و هوشمند ربات تلگرام صرافی و امانت‌داری کریمی
- * نسخه نهایی و اصلاح‌شده (Smart NLP Parser - v4)
+ * نسخه نهایی و فوق‌العاده دقیق پردازش زبان طبیعی (Smart NLP Parser - v5)
  * ==============================================================================
  */
 
@@ -140,7 +140,7 @@ async function getAccountLiveBalanceText(accId) {
 }
 
 /**
- * 🧠 موتور کاملاً هوشمند و دقیق تحلیل متن (Smart NLP Parser - v4)
+ * 🧠 موتور کاملاً حرفه‌ای و هوشمند تحلیل متن (Smart NLP Parser - v5)
  */
 function parseTransactionText(rawText, brokerAddresses = []) {
   const text = toEnglishDigits(rawText);
@@ -154,11 +154,15 @@ function parseTransactionText(rawText, brokerAddresses = []) {
     direction = 'بدهکار';
   }
 
-  // ۲. استخراج دقیق واحد ارز اصلی (مثل دلار، دینار، تومان، افغانی)
+  // ۲. تفکیک بخش اصلی معامله از بخش توضیحات و آدرس
+  let lines = text.split('\n');
+  let mainLine = lines[0] || text;
+
+  // ۳. استخراج واحد ارز اصلی از خط اول یا کنار مبلغ اصلی
   let currency = 'USD';
-  const mainAmtMatch = text.match(/(\d+(\.\d+)?)\s*(دلار|دینار|تومان|افغانی|USD|IQD|AFN|\$)/i);
-  if (mainAmtMatch && mainAmtMatch[3]) {
-    const cStr = mainAmtMatch[3].toLowerCase();
+  const mainCurrMatch = mainLine.match(/(دلار|دینار|تومان|افغانی|USD|IQD|AFN|\$)/i);
+  if (mainCurrMatch && mainCurrMatch[1]) {
+    const cStr = mainCurrMatch[1].toLowerCase();
     if (cStr.includes('دینار') || cStr === 'iqd') currency = 'IQD';
     else if (cStr.includes('تومان') || cStr === 'تمن') currency = 'تومان';
     else if (cStr.includes('افغانی') || cStr === 'afn') currency = 'AFN';
@@ -170,20 +174,21 @@ function parseTransactionText(rawText, brokerAddresses = []) {
     else if (/دلار|USD|\$/i.test(text)) currency = 'USD';
   }
 
-  // ۳. استخراج مبالغ
+  // ۴. استخراج دقیق مبالغ اولیه و نهایی (محاسبه تقسیم یا ضرب در صورت وجود)
   let amountInitial = 0;
   let exchangeRate = null;
   let amountFinal = 0;
 
-  const numbers = text.match(/\d+(\.\d+)?/g);
-  if (numbers && numbers.length > 0) {
-    amountInitial = parseFloat(numbers[0]);
+  const numbersInMain = mainLine.match(/\d+(\.\d+)?/g);
+  if (numbersInMain && numbersInMain.length > 0) {
+    amountInitial = parseFloat(numbersInMain[0]);
     amountFinal = amountInitial;
 
-    if (text.includes('÷') || text.includes('/')) {
-      const matchRate = text.match(/[÷\/]\s*(\d+(\.\d+)?)/);
-      if (matchRate && matchRate[1]) {
-        exchangeRate = parseFloat(matchRate[1]);
+    // بررسی وجود عملگر تقسیم (÷ یا /) یا کلمه تقسیم در خط اصلی
+    if (mainLine.includes('÷') || mainLine.includes('/') || mainLine.includes('تقسیم')) {
+      const rateMatch = mainLine.match(/(?:÷|\/|تقسیم)\s*(\d+(\.\d+)?)/);
+      if (rateMatch && rateMatch[1]) {
+        exchangeRate = parseFloat(rateMatch[1]);
         if (exchangeRate > 0) {
           amountFinal = parseFloat((amountInitial / exchangeRate).toFixed(2));
         }
@@ -191,30 +196,38 @@ function parseTransactionText(rawText, brokerAddresses = []) {
     }
   }
 
-  // ۴. تطبیق آدرس مقصد با لیست آدرس‌های صرافی یا شهرهای متداول
+  // ۵. تطبیق آدرس مقصد با لیست آدرس‌های صرافی یا شهرهای متداول
   let address = '-';
   let parsedAddrs = [];
   try {
     parsedAddrs = typeof brokerAddresses === 'string' ? JSON.parse(brokerAddresses) : (brokerAddresses || []);
   } catch (e) { parsedAddrs = []; }
 
+  // جستجوی آدرس‌های ثبت‌شده صرافی در کل متن
   for (let addr of parsedAddrs) {
     if (text.includes(addr)) {
       address = addr;
       break;
     }
   }
+
+  // اگر آدرس صرافی یافت نشد، بررسی کلیدواژه «آدرس ...» یا شهرهای متداول
   if (address === '-') {
-    const cities = ['کابل', 'تهران', 'هرات', 'مزار', 'قندهار', 'دبی', 'مشهد', 'اصفهان'];
-    for (let city of cities) {
-      if (text.includes(city)) {
-        address = city;
-        break;
+    const addrLineMatch = text.match(/آدرس\s+([^\n]+)/);
+    if (addrLineMatch && addrLineMatch[1]) {
+      address = addrLineMatch[1].trim();
+    } else {
+      const cities = ['کابل', 'تهران', 'هرات', 'مزار', 'قندهار', 'دبی', 'مشهد', 'اصفهان'];
+      for (let city of cities) {
+        if (text.includes(city)) {
+          address = city;
+          break;
+        }
       }
     }
   }
 
-  // ۵. استخراج دقیق بخش شرح و توضیحات (همه متن به عنوان شرح یا متن بعد از توضیح)
+  // ۶. استخراج متن کامل توضیحات (بدون دستکاری)
   let description = rawText.trim();
 
   let operationType = text.includes('حواله') ? 'حواله' : 'معامله';
@@ -366,7 +379,7 @@ module.exports = async (req, res) => {
         }]);
       }
 
-      // ۲. اتصال هوشمند به مشتری و استخراج مبلغ مجزا از خط اتصال
+      // ۲. اتصال هوشمند به مشتری و استخراج مبلغ مجزا از خط اتصال (مثل ۱۴۰ هزار دینار)
       const { data: accounts } = await supabase.from('accounts').select('*');
       let matchedCustomer = null;
       if (accounts) {
@@ -378,10 +391,12 @@ module.exports = async (req, res) => {
         let custAmount = parsedData.amountFinal;
         let custCurrency = parsedData.currency;
 
-        // جستجوی دقیق مبلغ و واحد پول در بخش اتصال (مثل "۱۴۰ دینار" یا "۵۰۰ دینار")
-        const custMatch = text.match(/(?:اتصال\s*(?:به)?\s*حساب[^0-9]*)?(\d+(\.\d+)?)\s*(دینار|دلار|تومان|افغانی|IQD|USD|AFN)/i);
+        const custMatch = text.match(/(?:اتصال\s*(?:به)?\s*حساب[^0-9]*)?([\d,]+(?:\.\d+)?)\s*(هزار)?\s*(دینار|دلار|تومان|افغانی|IQD|USD|AFN)/i);
         if (custMatch && custMatch[1]) {
-          custAmount = parseFloat(custMatch[1]);
+          let rawNum = parseFloat(custMatch[1].replace(/,/g, ''));
+          if (custMatch[2]) rawNum = rawNum * 1000; // تبدیل هزار به عدد کامل
+          custAmount = rawNum;
+
           const cStr = custMatch[3].toLowerCase();
           if (cStr.includes('دینار') || cStr === 'iqd') custCurrency = 'IQD';
           else if (cStr.includes('تومان')) custCurrency = 'تومان';
